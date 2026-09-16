@@ -1,10 +1,11 @@
 package com.urbano.monolith.payment.controller;
 
+import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
+import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.monolith.payment.dto.PaymentProofDto;
 import com.urbano.monolith.payment.dto.PaymentProofRequest;
 import com.urbano.monolith.payment.dto.PaymentProofResolveRequest;
-import com.urbano.monolith.payment.entity.PaymentProof;
 import com.urbano.monolith.payment.service.PaymentProofService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -21,17 +22,32 @@ public class PaymentProofController {
 
     private final PaymentProofService paymentProofService;
 
+    private UUID requireTenant() {
+        UUID pmAccountId = TenantContext.getPmAccountId();
+        if (pmAccountId == null) {
+            throw new UnauthorizedException("No tenant context — authentication required");
+        }
+        return pmAccountId;
+    }
+
+    private UUID requireUserId() {
+        UUID userId = TenantContext.getUserId();
+        if (userId == null) {
+            throw new UnauthorizedException("No user context — authentication required");
+        }
+        return userId;
+    }
+
     /**
-     * PATCH 7: Tenant submits payment proof
+     * PATCH 7: Tenant submits payment proof.
+     * The tenantId from the URL must match the authenticated user from the JWT.
      */
     @PostMapping("/api/tenants/{tenantId}/payments/proof")
     public ResponseEntity<PaymentProofDto> submitPaymentProof(
             @PathVariable("tenantId") UUID tenantId,
-            @RequestHeader("X-User-Id") UUID userId,
             @Valid @RequestBody PaymentProofRequest request) {
-        // Verify tenant matches authenticated user
-        if (!tenantId.equals(userId)) {
-            throw new SecurityException("Tenant ID does not match authenticated user");
+        if (!tenantId.equals(requireUserId())) {
+            throw new UnauthorizedException("Tenant ID does not match authenticated user");
         }
         return ResponseEntity.ok(paymentProofService.submitPaymentProof(tenantId, request));
     }
@@ -41,10 +57,9 @@ public class PaymentProofController {
      */
     @GetMapping("/api/payments/proofs/pending")
     public ResponseEntity<PagedResponse<PaymentProofDto>> getPendingProofs(
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(paymentProofService.getPendingProofs(pmAccountId, page, size));
+        return ResponseEntity.ok(paymentProofService.getPendingProofs(requireTenant(), page, size));
     }
 
     /**
@@ -53,19 +68,16 @@ public class PaymentProofController {
     @PutMapping("/api/payments/proofs/{id}/resolve")
     public ResponseEntity<PaymentProofDto> resolveProof(
             @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @Valid @RequestBody PaymentProofResolveRequest request) {
-        return ResponseEntity.ok(paymentProofService.resolveProof(id, pmAccountId, request));
+        return ResponseEntity.ok(paymentProofService.resolveProof(id, requireTenant(), request));
     }
 
     /**
      * PATCH 7: Get proof by ID
      */
     @GetMapping("/api/payments/proofs/{id}")
-    public ResponseEntity<PaymentProofDto> getProof(
-            @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        return ResponseEntity.ok(paymentProofService.getProof(id, pmAccountId));
+    public ResponseEntity<PaymentProofDto> getProof(@PathVariable("id") UUID id) {
+        return ResponseEntity.ok(paymentProofService.getProof(id, requireTenant()));
     }
 
     /**

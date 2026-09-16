@@ -1,7 +1,9 @@
 package com.urbano.monolith.maintenance.controller;
 
+import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
 import com.urbano.common.enums.MaintenanceStatus;
+import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.monolith.maintenance.dto.*;
 import com.urbano.monolith.maintenance.service.MaintenanceService;
 import com.urbano.monolith.maintenance.service.PhotoService;
@@ -22,142 +24,136 @@ public class MaintenanceController {
     private final MaintenanceService maintenanceService;
     private final PhotoService photoService;
 
+    private UUID requireTenant() {
+        UUID pmAccountId = TenantContext.getPmAccountId();
+        if (pmAccountId == null) {
+            throw new UnauthorizedException("No tenant context — authentication required");
+        }
+        return pmAccountId;
+    }
+
     // ============================================================
-    // CREATE - Scoped to PM Account
+    // CREATE - Scoped to PM Account (from JWT)
     // ============================================================
     @PostMapping
     public ResponseEntity<MaintenanceRequestDto> createRequest(
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @Valid @RequestBody MaintenanceRequestRequest request) {
-        request.setPmAccountId(pmAccountId);
+        request.setPmAccountId(requireTenant());
         return ResponseEntity.ok(maintenanceService.createRequest(request));
     }
 
     // ============================================================
-    // GET BY ID - Scoped to PM Account
+    // GET BY ID
     // ============================================================
     @GetMapping("/{id}")
-    public ResponseEntity<MaintenanceRequestDto> getRequest(
-            @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        return ResponseEntity.ok(maintenanceService.getRequest(id, pmAccountId));
+    public ResponseEntity<MaintenanceRequestDto> getRequest(@PathVariable("id") UUID id) {
+        return ResponseEntity.ok(maintenanceService.getRequest(id, requireTenant()));
     }
 
     // ============================================================
-    // GET ALL - Scoped to PM Account
+    // GET ALL
     // ============================================================
     @GetMapping
     public ResponseEntity<PagedResponse<MaintenanceRequestDto>> getAllRequests(
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(maintenanceService.getAllRequests(pmAccountId, page, size));
+        return ResponseEntity.ok(maintenanceService.getAllRequests(requireTenant(), page, size));
     }
 
     // ============================================================
-    // GET BY STATUS - Scoped to PM Account
+    // GET BY STATUS
     // ============================================================
     @GetMapping("/status/{status}")
     public ResponseEntity<PagedResponse<MaintenanceRequestDto>> getRequestsByStatus(
             @PathVariable("status") MaintenanceStatus status,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(maintenanceService.getRequestsByStatus(pmAccountId, status, page, size));
+        return ResponseEntity.ok(maintenanceService.getRequestsByStatus(requireTenant(), status, page, size));
     }
 
     // ============================================================
-    // GET BY UNIT - Scoped to PM Account
+    // GET BY UNIT
     // ============================================================
     @GetMapping("/unit/{unitId}")
     public ResponseEntity<PagedResponse<MaintenanceRequestDto>> getRequestsByUnit(
             @PathVariable("unitId") UUID unitId,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(maintenanceService.getRequestsByUnit(unitId, pmAccountId, page, size));
+        return ResponseEntity.ok(maintenanceService.getRequestsByUnit(unitId, requireTenant(), page, size));
     }
 
     // ============================================================
-    // GET BY PROPERTY - Scoped to PM Account
+    // GET BY PROPERTY
     // ============================================================
     @GetMapping("/property/{propertyId}")
     public ResponseEntity<PagedResponse<MaintenanceRequestDto>> getRequestsByProperty(
             @PathVariable("propertyId") UUID propertyId,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(maintenanceService.getRequestsByProperty(propertyId, pmAccountId, page, size));
+        return ResponseEntity.ok(maintenanceService.getRequestsByProperty(propertyId, requireTenant(), page, size));
     }
 
     // ============================================================
-    // UPDATE - Scoped to PM Account
+    // UPDATE
     // ============================================================
     @PutMapping("/{id}")
     public ResponseEntity<MaintenanceRequestDto> updateRequest(
             @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @Valid @RequestBody MaintenanceRequestRequest request) {
-        return ResponseEntity.ok(maintenanceService.updateRequest(id, pmAccountId, request));
+        return ResponseEntity.ok(maintenanceService.updateRequest(id, requireTenant(), request));
     }
 
     // ============================================================
-    // UPDATE STATUS - Scoped to PM Account
+    // UPDATE STATUS
     // ============================================================
     @PatchMapping("/{id}/status")
     public ResponseEntity<MaintenanceRequestDto> updateStatus(
             @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @Valid @RequestBody StatusUpdateRequest request) {
-        return ResponseEntity.ok(maintenanceService.updateStatus(id, pmAccountId, request));
+        return ResponseEntity.ok(maintenanceService.updateStatus(id, requireTenant(), request));
     }
 
     // ============================================================
-    // ASSIGN - Scoped to PM Account
+    // ASSIGN
     // ============================================================
     @PostMapping("/{id}/assign")
     public ResponseEntity<MaintenanceRequestDto> assignRequest(
             @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam("assignedTo") UUID assignedTo) {
-        return ResponseEntity.ok(maintenanceService.assignRequest(id, pmAccountId, assignedTo));
+        return ResponseEntity.ok(maintenanceService.assignRequest(id, requireTenant(), assignedTo));
     }
 
     // ============================================================
-    // PHOTO UPLOAD URL - Scoped to PM Account
+    // PHOTO UPLOAD URL
     // ============================================================
     @PostMapping("/{id}/photos/upload-url")
     public ResponseEntity<PhotoUploadUrlResponse> getPhotoUploadUrl(
             @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam("fileName") String fileName) {
-        return ResponseEntity.ok(photoService.getPhotoUploadUrl(id, pmAccountId, fileName));
+        return ResponseEntity.ok(photoService.getPhotoUploadUrl(id, requireTenant(), fileName));
     }
 
     // ============================================================
-    // ADD PHOTO - Scoped to PM Account
+    // ADD PHOTO
     // ============================================================
     @PostMapping("/{id}/photos")
     public ResponseEntity<MaintenanceRequestDto> addPhoto(
             @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam("photoUrl") String photoUrl) {
-        return ResponseEntity.ok(maintenanceService.addPhoto(id, pmAccountId, photoUrl));
+        return ResponseEntity.ok(maintenanceService.addPhoto(id, requireTenant(), photoUrl));
     }
 
     // ============================================================
-    // DELETE (Soft Delete) - Scoped to PM Account
+    // DELETE (Soft Delete)
     // ============================================================
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteRequest(
-            @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        maintenanceService.deleteRequest(id, pmAccountId);
+    public ResponseEntity<Void> deleteRequest(@PathVariable("id") UUID id) {
+        maintenanceService.deleteRequest(id, requireTenant());
         return ResponseEntity.noContent().build();
     }
 
     // ============================================================
-    // GET REQUESTS FOR TENANT - Scoped to Tenant
+    // GET REQUESTS FOR TENANT
     // ============================================================
     @GetMapping("/tenant/{tenantId}")
     public ResponseEntity<PagedResponse<MaintenanceRequestDto>> getRequestsForTenant(

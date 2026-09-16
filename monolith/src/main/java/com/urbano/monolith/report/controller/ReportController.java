@@ -1,6 +1,8 @@
 package com.urbano.monolith.report.controller;
 
+import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
+import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.monolith.report.dto.ReportDto;
 import com.urbano.monolith.report.dto.ReportRequest;
 import com.urbano.monolith.report.dto.ReportResponse;
@@ -24,14 +26,17 @@ public class ReportController {
 
     private final ReportService reportService;
 
-    // ============================================================
-    // GENERATE REPORT
-    // ============================================================
+    private UUID requireTenant() {
+        UUID pmAccountId = TenantContext.getPmAccountId();
+        if (pmAccountId == null) {
+            throw new UnauthorizedException("No tenant context — authentication required");
+        }
+        return pmAccountId;
+    }
+
     @PostMapping
-    public ResponseEntity<ReportResponse> generateReport(
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
-            @Valid @RequestBody ReportRequest request) {
-        request.setPmAccountId(pmAccountId);
+    public ResponseEntity<ReportResponse> generateReport(@Valid @RequestBody ReportRequest request) {
+        request.setPmAccountId(requireTenant());
         ReportDto report = reportService.generateReport(request);
 
         return ResponseEntity.ok(ReportResponse.builder()
@@ -43,70 +48,45 @@ public class ReportController {
                 .build());
     }
 
-    // ============================================================
-    // GET REPORT BY ID
-    // ============================================================
     @GetMapping("/{id}")
-    public ResponseEntity<ReportDto> getReport(
-            @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        return ResponseEntity.ok(reportService.getReport(id, pmAccountId));
+    public ResponseEntity<ReportDto> getReport(@PathVariable("id") UUID id) {
+        return ResponseEntity.ok(reportService.getReport(id, requireTenant()));
     }
 
-    // ============================================================
-    // GET ALL REPORTS
-    // ============================================================
     @GetMapping
     public ResponseEntity<PagedResponse<ReportDto>> getReports(
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(reportService.getReports(pmAccountId, page, size));
+        return ResponseEntity.ok(reportService.getReports(requireTenant(), page, size));
     }
 
-    // ============================================================
-    // GET REPORTS BY TYPE
-    // ============================================================
     @GetMapping("/type/{type}")
     public ResponseEntity<PagedResponse<ReportDto>> getReportsByType(
             @PathVariable("type") String type,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(reportService.getReportsByType(pmAccountId, type, page, size));
+        return ResponseEntity.ok(reportService.getReportsByType(requireTenant(), type, page, size));
     }
 
-    // ============================================================
-    // GET REPORTS BY STATUS
-    // ============================================================
     @GetMapping("/status/{status}")
     public ResponseEntity<PagedResponse<ReportDto>> getReportsByStatus(
             @PathVariable("status") String status,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(reportService.getReportsByStatus(pmAccountId, status, page, size));
+        return ResponseEntity.ok(reportService.getReportsByStatus(requireTenant(), status, page, size));
     }
 
-    // ============================================================
-    // GET USER REPORTS
-    // ============================================================
     @GetMapping("/user/{userId}")
     public ResponseEntity<PagedResponse<ReportDto>> getUserReports(
             @PathVariable("userId") UUID userId,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(reportService.getUserReports(userId, pmAccountId, page, size));
+        return ResponseEntity.ok(reportService.getUserReports(userId, requireTenant(), page, size));
     }
 
-    // ============================================================
-    // DOWNLOAD REPORT
-    // ============================================================
     @GetMapping("/{id}/download")
-    public ResponseEntity<byte[]> downloadReport(
-            @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
+    public ResponseEntity<byte[]> downloadReport(@PathVariable("id") UUID id) {
+        UUID pmAccountId = requireTenant();
         byte[] reportData = reportService.downloadReport(id, pmAccountId);
         ReportDto report = reportService.getReport(id, pmAccountId);
         String filename = report.getFileName() != null ? report.getFileName() :
@@ -118,23 +98,14 @@ public class ReportController {
                 .body(reportData);
     }
 
-    // ============================================================
-    // DELETE REPORT
-    // ============================================================
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteReport(
-            @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        reportService.deleteReport(id, pmAccountId);
+    public ResponseEntity<Void> deleteReport(@PathVariable("id") UUID id) {
+        reportService.deleteReport(id, requireTenant());
         return ResponseEntity.noContent().build();
     }
 
-    // ============================================================
-    // GET REPORT STATISTICS
-    // ============================================================
     @GetMapping("/stats")
-    public ResponseEntity<ReportStatisticsDto> getStatistics(
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        return ResponseEntity.ok(reportService.getStatistics(pmAccountId));
+    public ResponseEntity<ReportStatisticsDto> getStatistics() {
+        return ResponseEntity.ok(reportService.getStatistics(requireTenant()));
     }
 }
