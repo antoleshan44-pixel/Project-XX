@@ -1,6 +1,8 @@
 package com.urbano.monolith.notification.controller;
 
+import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
+import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.monolith.notification.dto.NotificationDto;
 import com.urbano.monolith.notification.dto.NotificationRequest;
 import com.urbano.monolith.notification.dto.NotificationResponse;
@@ -24,98 +26,65 @@ public class NotificationController {
 
     private final NotificationService notificationService;
 
-    // ============================================================
-    // SEND NOTIFICATION
-    // ============================================================
+    private UUID requireTenant() {
+        UUID pmAccountId = TenantContext.getPmAccountId();
+        if (pmAccountId == null) {
+            throw new UnauthorizedException("No tenant context — authentication required");
+        }
+        return pmAccountId;
+    }
+
     @PostMapping
     public ResponseEntity<NotificationResponse> sendNotification(
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @Valid @RequestBody NotificationRequest request) {
-        request.setPmAccountId(pmAccountId);
+        request.setPmAccountId(requireTenant());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(notificationService.sendNotification(request));
     }
 
-    // ============================================================
-    // GET NOTIFICATION BY ID
-    // ============================================================
     @GetMapping("/{id}")
-    public ResponseEntity<NotificationDto> getNotification(
-            @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        return ResponseEntity.ok(notificationService.getNotification(id, pmAccountId));
+    public ResponseEntity<NotificationDto> getNotification(@PathVariable("id") UUID id) {
+        return ResponseEntity.ok(notificationService.getNotification(id, requireTenant()));
     }
 
-    // ============================================================
-    // GET USER NOTIFICATIONS
-    // ============================================================
     @GetMapping("/user/{userId}")
     public ResponseEntity<PagedResponse<NotificationDto>> getUserNotifications(
             @PathVariable("userId") UUID userId,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(notificationService.getUserNotifications(userId, pmAccountId, page, size));
+        return ResponseEntity.ok(notificationService.getUserNotifications(userId, requireTenant(), page, size));
     }
 
-    // ============================================================
-    // GET UNREAD NOTIFICATIONS
-    // ============================================================
     @GetMapping("/user/{userId}/unread")
     public ResponseEntity<List<NotificationDto>> getUnreadNotifications(
-            @PathVariable("userId") UUID userId,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        return ResponseEntity.ok(notificationService.getUnreadNotifications(userId, pmAccountId));
+            @PathVariable("userId") UUID userId) {
+        return ResponseEntity.ok(notificationService.getUnreadNotifications(userId, requireTenant()));
     }
 
-    // ============================================================
-    // GET UNREAD COUNT
-    // ============================================================
     @GetMapping("/user/{userId}/unread/count")
-    public ResponseEntity<Long> getUnreadCount(
-            @PathVariable("userId") UUID userId,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        return ResponseEntity.ok(notificationService.getUnreadCount(userId, pmAccountId));
+    public ResponseEntity<Long> getUnreadCount(@PathVariable("userId") UUID userId) {
+        return ResponseEntity.ok(notificationService.getUnreadCount(userId, requireTenant()));
     }
 
-    // ============================================================
-    // MARK AS READ
-    // ============================================================
     @PutMapping("/{id}/read")
-    public ResponseEntity<NotificationDto> markAsRead(
-            @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        return ResponseEntity.ok(notificationService.markAsRead(id, pmAccountId));
+    public ResponseEntity<NotificationDto> markAsRead(@PathVariable("id") UUID id) {
+        return ResponseEntity.ok(notificationService.markAsRead(id, requireTenant()));
     }
 
-    // ============================================================
-    // MARK ALL AS READ
-    // ============================================================
     @PutMapping("/user/{userId}/read-all")
-    public ResponseEntity<Void> markAllAsRead(
-            @PathVariable("userId") UUID userId,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        notificationService.markAllAsRead(userId, pmAccountId);
+    public ResponseEntity<Void> markAllAsRead(@PathVariable("userId") UUID userId) {
+        notificationService.markAllAsRead(userId, requireTenant());
         return ResponseEntity.ok().build();
     }
 
-    // ============================================================
-    // DELETE NOTIFICATION
-    // ============================================================
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteNotification(
-            @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        notificationService.deleteNotification(id, pmAccountId);
+    public ResponseEntity<Void> deleteNotification(@PathVariable("id") UUID id) {
+        notificationService.deleteNotification(id, requireTenant());
         return ResponseEntity.noContent().build();
     }
 
-    // ============================================================
-    // GET NOTIFICATION STATS
-    // ============================================================
     @GetMapping("/stats")
-    public ResponseEntity<NotificationStatsDto> getStats(
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        return ResponseEntity.ok(notificationService.getStats(pmAccountId));
+    public ResponseEntity<NotificationStatsDto> getStats() {
+        return ResponseEntity.ok(notificationService.getStats(requireTenant()));
     }
 }

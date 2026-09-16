@@ -1,6 +1,8 @@
 package com.urbano.monolith.tenant.controller;
 
+import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
+import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.monolith.tenant.dto.TenantDto;
 import com.urbano.monolith.tenant.dto.TenantRequest;
 import com.urbano.monolith.tenant.service.TenantService;
@@ -20,44 +22,45 @@ public class TenantController {
 
     private final TenantService tenantService;
 
+    private UUID requireTenant() {
+        UUID pmAccountId = TenantContext.getPmAccountId();
+        if (pmAccountId == null) {
+            throw new UnauthorizedException("No tenant context — authentication required");
+        }
+        return pmAccountId;
+    }
+
     @PostMapping
-    public ResponseEntity<TenantDto> createTenant(
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
-            @Valid @RequestBody TenantRequest request) {
-        request.setPmAccountId(pmAccountId);
+    public ResponseEntity<TenantDto> createTenant(@Valid @RequestBody TenantRequest request) {
+        request.setPmAccountId(requireTenant());
         return ResponseEntity.ok(tenantService.createTenant(request));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<TenantDto> getTenant(
-            @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        return ResponseEntity.ok(tenantService.getTenant(id, pmAccountId));
+    public ResponseEntity<TenantDto> getTenant(@PathVariable("id") UUID id) {
+        return ResponseEntity.ok(tenantService.getTenant(id, requireTenant()));
     }
 
     @GetMapping
     public ResponseEntity<PagedResponse<TenantDto>> getTenants(
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(tenantService.getTenants(pmAccountId, page, size));
+        return ResponseEntity.ok(tenantService.getTenants(requireTenant(), page, size));
     }
 
     @GetMapping("/active")
     public ResponseEntity<PagedResponse<TenantDto>> getActiveTenants(
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(tenantService.getActiveTenants(pmAccountId, page, size));
+        return ResponseEntity.ok(tenantService.getActiveTenants(requireTenant(), page, size));
     }
 
     @GetMapping("/unit/{unitId}")
     public ResponseEntity<PagedResponse<TenantDto>> getTenantsByUnit(
             @PathVariable("unitId") UUID unitId,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(tenantService.getTenantsByUnit(unitId, pmAccountId, page, size));
+        return ResponseEntity.ok(tenantService.getTenantsByUnit(unitId, requireTenant(), page, size));
     }
 
     @GetMapping("/user/{userId}")
@@ -65,43 +68,30 @@ public class TenantController {
         return ResponseEntity.ok(tenantService.getTenantByUserId(userId));
     }
 
-    /**
-     * PUT — full update (backwards compatible)
-     */
     @PutMapping("/{id}")
     public ResponseEntity<TenantDto> updateTenant(
             @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @Valid @RequestBody TenantRequest request) {
-        return ResponseEntity.ok(tenantService.updateTenant(id, pmAccountId, request));
+        return ResponseEntity.ok(tenantService.updateTenant(id, requireTenant(), request));
     }
 
-    /**
-     * ✅ NEW — PATCH for partial updates
-     * Used by the E2E test which sends only { phone: "..." }
-     * The service applies null-safe PATCH semantics internally.
-     */
     @PatchMapping("/{id}")
     public ResponseEntity<TenantDto> patchTenant(
             @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestBody TenantRequest request) {
-        return ResponseEntity.ok(tenantService.updateTenant(id, pmAccountId, request));
+        return ResponseEntity.ok(tenantService.updateTenant(id, requireTenant(), request));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteTenant(
-            @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId) {
-        tenantService.deleteTenant(id, pmAccountId);
+    public ResponseEntity<Void> deleteTenant(@PathVariable("id") UUID id) {
+        tenantService.deleteTenant(id, requireTenant());
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{id}/status")
     public ResponseEntity<TenantDto> updateTenantStatus(
             @PathVariable("id") UUID id,
-            @RequestHeader("X-Pm-Account-Id") UUID pmAccountId,
             @RequestParam("active") boolean active) {
-        return ResponseEntity.ok(tenantService.updateTenantStatus(id, pmAccountId, active));
+        return ResponseEntity.ok(tenantService.updateTenantStatus(id, requireTenant(), active));
     }
 }

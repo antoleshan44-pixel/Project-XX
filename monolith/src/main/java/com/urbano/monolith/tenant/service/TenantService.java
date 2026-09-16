@@ -29,6 +29,12 @@ public class TenantService {
 
     @Transactional
     public TenantDto createTenant(TenantRequest request) {
+        // Never trust client-supplied pmAccountId — must come from JWT
+        UUID pmAccountId = com.urbano.common.context.TenantContext.getPmAccountId();
+        if (pmAccountId == null) {
+            throw new com.urbano.common.exception.UnauthorizedException("No tenant context");
+        }
+
         if (tenantRepository.existsByEmail(request.getEmail())) {
             throw new ConflictException("Email already exists: " + request.getEmail());
         }
@@ -43,7 +49,7 @@ public class TenantService {
         String lastName = nameParts.length > 1 ? nameParts[1] : "";
 
         Tenant tenant = Tenant.builder()
-                .pmAccountId(request.getPmAccountId())
+                .pmAccountId(pmAccountId)
                 .userId(request.getUserId())
                 .fullName(request.getFullName())
                 .firstName(firstName)
@@ -62,7 +68,6 @@ public class TenantService {
         log.info("Tenant created: {} for PM account {}", tenant.getId(), tenant.getPmAccountId());
         return mapToDto(tenant);
     }
-
     @Transactional(readOnly = true)
     public TenantDto getTenant(UUID id, UUID pmAccountId) {
         Tenant tenant = tenantRepository.findByIdAndPmAccountId(id, pmAccountId)

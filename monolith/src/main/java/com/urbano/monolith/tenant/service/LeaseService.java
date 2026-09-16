@@ -1,8 +1,10 @@
 package com.urbano.monolith.tenant.service;
 
+import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
 import com.urbano.common.enums.LeaseStatus;
 import com.urbano.common.exception.ResourceNotFoundException;
+import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.monolith.property.service.UnitService;
 import com.urbano.monolith.tenant.dto.LeaseDto;
 import com.urbano.monolith.tenant.dto.LeaseRequest;
@@ -34,24 +36,36 @@ public class LeaseService {
     private final TenantRepository tenantRepository;
     private final UnitService unitService;
 
+    private UUID requireTenant() {
+        UUID pmAccountId = TenantContext.getPmAccountId();
+        if (pmAccountId == null) {
+            throw new UnauthorizedException("No tenant context — authentication required");
+        }
+        return pmAccountId;
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public LeaseDto createLease(LeaseRequest request) {
+        UUID pmAccountId = requireTenant();
         log.info("Creating lease for tenant: {}, unit: {}", request.getTenantId(), request.getUnitId());
 
-        Tenant tenant = tenantRepository.findByIdAndPmAccountId(
-                        request.getTenantId(), request.getPmAccountId())
+        Tenant tenant = tenantRepository.findByIdAndPmAccountId(request.getTenantId(), pmAccountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
 
         if (leaseRepository.existsByTenantIdAndIsActiveTrue(request.getTenantId())) {
             throw new RuntimeException("Tenant already has an active lease");
         }
-
         if (leaseRepository.existsByUnitIdAndIsActiveTrue(request.getUnitId())) {
             throw new RuntimeException("Unit already has an active lease");
         }
 
+        // Verify unit belongs to this tenant
+        if (!unitService.validateUnitPmAccount(request.getUnitId(), pmAccountId)) {
+            throw new UnauthorizedException("Unit does not belong to this PM account");
+        }
+
         Lease lease = Lease.builder()
-                .pmAccountId(request.getPmAccountId())
+                .pmAccountId(pmAccountId)
                 .tenant(tenant)
                 .tenantId(request.getTenantId())
                 .unitId(request.getUnitId())
@@ -73,14 +87,7 @@ public class LeaseService {
         lease = leaseRepository.save(lease);
         log.info("Lease created: {}", lease.getId());
 
-        try {
-            unitService.occupyUnit(request.getUnitId());
-            log.info("Unit {} marked as OCCUPIED", request.getUnitId());
-        } catch (Exception e) {
-            log.error("Failed to mark unit as OCCUPIED: {}", e.getMessage());
-            throw new RuntimeException("Failed to update unit status", e);
-        }
-
+        unitService.occupyUnit(request.getUnitId());
         tenant.setUnitId(request.getUnitId());
         tenantRepository.save(tenant);
 
@@ -89,9 +96,10 @@ public class LeaseService {
 
     @Transactional(rollbackFor = Exception.class)
     public LeaseDto terminateLease(UUID id, TerminateLeaseRequest request) {
-        log.info("Terminating lease: {}", id);
+        UUID pmAccountId = requireTenant();
+        log.info("Terminating lease: {} for tenant {}", id, pmAccountId);
 
-        Lease lease = leaseRepository.findById(id)
+        Lease lease = leaseRepository.findByIdAndPmAccountId(id, pmAccountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Lease not found"));
 
         if (!lease.isCurrentlyActive()) {
@@ -107,13 +115,7 @@ public class LeaseService {
         lease = leaseRepository.save(lease);
         log.info("Lease terminated: {}", id);
 
-        try {
-            unitService.vacateUnit(lease.getUnitId());
-            log.info("Unit {} marked as VACANT", lease.getUnitId());
-        } catch (Exception e) {
-            log.error("Failed to mark unit as VACANT: {}", e.getMessage());
-            throw new RuntimeException("Failed to update unit status", e);
-        }
+        unitService.vacateUnit(lease.getUnitId());
 
         Tenant tenant = lease.getTenant();
         if (tenant != null) {
@@ -199,7 +201,7 @@ public class LeaseService {
     }
 
     // ============================================================
-    // MAPPER METHODS
+    // MAPPERS
     // ============================================================
     private LeaseDto mapToDto(Lease lease) {
         Tenant tenant = lease.getTenant();

@@ -36,13 +36,18 @@ public class MaintenanceService {
 
     @Transactional
     public MaintenanceRequestDto createRequest(MaintenanceRequestRequest request) {
-        boolean isValid = unitService.validateUnitPmAccount(request.getUnitId(), request.getPmAccountId());
-        if (!isValid) {
+        UUID pmAccountId = com.urbano.common.context.TenantContext.getPmAccountId();
+        if (pmAccountId == null) {
+            throw new UnauthorizedException("No tenant context");
+        }
+
+        // Verify the unit belongs to this tenant
+        if (!unitService.validateUnitPmAccount(request.getUnitId(), pmAccountId)) {
             throw new UnauthorizedException("Unit does not belong to this PM account");
         }
 
         MaintenanceRequest maintenance = MaintenanceRequest.builder()
-                .pmAccountId(request.getPmAccountId())
+                .pmAccountId(pmAccountId)
                 .propertyId(request.getPropertyId())
                 .unitId(request.getUnitId())
                 .tenantId(request.getTenantId())
@@ -54,8 +59,7 @@ public class MaintenanceService {
                 .build();
 
         maintenance = maintenanceRepository.save(maintenance);
-        log.info("Maintenance request created: {} for PM account {}", maintenance.getId(), maintenance.getPmAccountId());
-
+        log.info("Maintenance request created: {} for PM account {}", maintenance.getId(), pmAccountId);
         return mapToDto(maintenance);
     }
 

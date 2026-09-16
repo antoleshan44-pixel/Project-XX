@@ -1,8 +1,10 @@
 package com.urbano.monolith.property.service;
 
+import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
 import com.urbano.common.enums.UnitStatus;
 import com.urbano.common.exception.ResourceNotFoundException;
+import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.common.storage.PhotoStorageService;
 import com.urbano.monolith.listing.dto.VacantUnitDto;
 import com.urbano.monolith.property.dto.UnitDto;
@@ -33,10 +35,37 @@ public class UnitService {
     private final PropertyRepository propertyRepository;
     private final PhotoStorageService photoStorageService;
 
+    // ============================================================
+    // Tenant helpers
+    // ============================================================
+    private UUID requireTenant() {
+        UUID pmAccountId = TenantContext.getPmAccountId();
+        if (pmAccountId == null) {
+            throw new UnauthorizedException("No tenant context — authentication required");
+        }
+        return pmAccountId;
+    }
+
+    private Unit requireOwnedUnit(UUID id) {
+        UUID pmAccountId = requireTenant();
+        return unitRepository.findByIdAndTenant(id, pmAccountId)
+                .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
+    }
+
+    // ============================================================
+    // CREATE
+    // ============================================================
     @Transactional
     public UnitDto createUnit(UnitRequest request) {
+        UUID pmAccountId = requireTenant();
+
         Property property = propertyRepository.findById(request.getPropertyId())
                 .orElseThrow(() -> new ResourceNotFoundException("Property not found"));
+
+        if (property.getPmAccountId() == null
+                || !pmAccountId.equals(property.getPmAccountId())) {
+            throw new UnauthorizedException("Access denied to this property");
+        }
 
         Unit unit = Unit.builder()
                 .property(property)
@@ -59,35 +88,34 @@ public class UnitService {
                 .build();
 
         unit = unitRepository.save(unit);
-        log.info("Unit created: {}", unit.getId());
+        log.info("Unit created: {} for tenant {}", unit.getId(), pmAccountId);
         return mapToDto(unit);
     }
 
+    // ============================================================
+    // READ
+    // ============================================================
     @Transactional(readOnly = true)
     public UnitDto getUnit(UUID id) {
-        Unit unit = unitRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
-        return mapToDto(unit);
+        return mapToDto(requireOwnedUnit(id));
     }
 
     @Transactional(readOnly = true)
     public PagedResponse<UnitDto> getUnits(UUID propertyId, Pageable pageable) {
-        Page<Unit> unitPage = unitRepository.findByPropertyId(propertyId, pageable);
-        List<UnitDto> content = unitPage.getContent().stream()
-                .map(this::mapToDto)
-                .collect(Collectors.toList());
+        UUID pmAccountId = requireTenant();
 
-        return PagedResponse.<UnitDto>builder()
-                .content(content)
-                .page(pageable.getPageNumber())
-                .size(pageable.getPageSize())
-                .totalElements(unitPage.getTotalElements())
-                .totalPages(unitPage.getTotalPages())
-                .first(unitPage.isFirst())
-                .last(unitPage.isLast())
-                .build();
+        Property property = propertyRepository.findById(propertyId)
+                .orElseThrow(() -> new ResourceNotFoundException("Property not found"));
+        if (property.getPmAccountId() == null
+                || !pmAccountId.equals(property.getPmAccountId())) {
+            throw new UnauthorizedException("Access denied to this property");
+        }
+
+        Page<Unit> unitPage = unitRepository.findByPropertyIdAndTenant(propertyId, pmAccountId, pageable);
+        return toPagedResponse(unitPage, pageable);
     }
 
+    /** Public — no auth. */
     @Transactional(readOnly = true)
     public List<UnitDto> getVacantPublishedUnits() {
         return unitRepository.findByIsAvailableTrueAndPublishedTrue().stream()
@@ -95,11 +123,6 @@ public class UnitService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Returns vacant+published units enriched with their property's flat fields
-     * (address, city, state, name, type) for the public listing view.
-     * Runs inside a read-only transaction so lazy-loading Property is safe.
-     */
     @Transactional(readOnly = true)
     public List<VacantUnitDto> getVacantPublishedUnitDtos() {
         return unitRepository.findByIsAvailableTrueAndPublishedTrue().stream()
@@ -107,10 +130,12 @@ public class UnitService {
                 .collect(Collectors.toList());
     }
 
+    // ============================================================
+    // UPDATE
+    // ============================================================
     @Transactional
     public UnitDto updateUnit(UUID id, UnitRequest request) {
-        Unit unit = unitRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
+        Unit unit = requireOwnedUnit(id);
 
         unit.setUnitNumber(request.getUnitNumber());
         unit.setFloor(request.getFloor());
@@ -129,8 +154,7 @@ public class UnitService {
 
     @Transactional
     public void deleteUnit(UUID id) {
-        Unit unit = unitRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
+        Unit unit = requireOwnedUnit(id);
         unit.setDeletedAt(LocalDateTime.now());
         unitRepository.save(unit);
         log.info("Unit deleted: {}", id);
@@ -138,8 +162,7 @@ public class UnitService {
 
     @Transactional
     public UnitDto publishUnit(UUID id) {
-        Unit unit = unitRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
+        Unit unit = requireOwnedUnit(id);
         unit.setPublished(true);
         unit = unitRepository.save(unit);
         return mapToDto(unit);
@@ -147,22 +170,15 @@ public class UnitService {
 
     @Transactional
     public UnitDto unpublishUnit(UUID id) {
-        Unit unit = unitRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
+        Unit unit = requireOwnedUnit(id);
         unit.setPublished(false);
         unit = unitRepository.save(unit);
         return mapToDto(unit);
     }
 
-    public String getPhotoUploadUrl(UUID unitId, String fileName) {
-        String key = "units/" + unitId + "/" + fileName;
-        return photoStorageService.uploadFile(key, new byte[0], "image/jpeg");
-    }
-
     @Transactional
     public UnitDto addPhoto(UUID unitId, String photoUrl) {
-        Unit unit = unitRepository.findById(unitId)
-                .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
+        Unit unit = requireOwnedUnit(unitId);
         if (unit.getPhotoUrls() == null) {
             unit.setPhotoUrls(new ArrayList<>());
         }
@@ -173,8 +189,7 @@ public class UnitService {
 
     @Transactional
     public UnitDto updateStatus(UUID id, String status) {
-        Unit unit = unitRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
+        Unit unit = requireOwnedUnit(id);
         try {
             UnitStatus newStatus = UnitStatus.valueOf(status.toUpperCase());
             unit.setStatus(newStatus);
@@ -186,8 +201,15 @@ public class UnitService {
         return mapToDto(unit);
     }
 
+    public String getPhotoUploadUrl(UUID unitId, String fileName) {
+        requireOwnedUnit(unitId);
+        String key = "units/" + unitId + "/" + fileName;
+        return photoStorageService.uploadFile(key, new byte[0], "image/jpeg");
+    }
+
     // ============================================================
-    // INTERNAL METHODS (called by tenant-service and maintenance-service)
+    // INTERNAL — called by LeaseService/MaintenanceService/TenantService
+    // These bypass TenantContext and operate on the raw unit ID.
     // ============================================================
 
     @Transactional
@@ -226,18 +248,12 @@ public class UnitService {
 
     @Transactional(readOnly = true)
     public boolean validateUnitPmAccount(UUID unitId, UUID pmAccountId) {
-        Unit unit = unitRepository.findById(unitId)
-                .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
-        if (unit.getProperty() == null) {
-            return false;
-        }
-        return pmAccountId.equals(unit.getProperty().getPmAccountId());
+        return unitRepository.existsByIdAndTenant(unitId, pmAccountId);
     }
 
     // ============================================================
     // MAPPERS
     // ============================================================
-
     private UnitDto mapToDto(Unit unit) {
         return UnitDto.builder()
                 .id(unit.getId())
@@ -285,6 +301,22 @@ public class UnitService {
                 .thumbnailUrl(thumbnail)
                 .status(unit.getStatus() != null ? unit.getStatus().name() : null)
                 .published(unit.isPublished())
+                .build();
+    }
+
+    private PagedResponse<UnitDto> toPagedResponse(Page<Unit> page, Pageable pageable) {
+        List<UnitDto> content = page.getContent().stream()
+                .map(this::mapToDto)
+                .collect(Collectors.toList());
+
+        return PagedResponse.<UnitDto>builder()
+                .content(content)
+                .page(pageable.getPageNumber())
+                .size(pageable.getPageSize())
+                .totalElements(page.getTotalElements())
+                .totalPages(page.getTotalPages())
+                .first(page.isFirst())
+                .last(page.isLast())
                 .build();
     }
 }
