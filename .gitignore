@@ -1,0 +1,54 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Maven build output
+target/
+*.jar
+*.war
+*.ear
+*.class
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# Log files
+*.log
+logs/
+
+# Docker volumes
+postgres_data/
+minio_data/
+report_data/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Application specific
+application-local.yml
+application-dev.yml
+
+# Test artifacts
+test_report.json
+test_debug.log
+e2e-tests/__pycache__/
+*.pyc
+
+# Backup files
+*.bak
+*.bak.*
+*.bak2
+
+# Stray files
+e.yml
+tatus
+
+# IntelliJ run configs
+.run/
