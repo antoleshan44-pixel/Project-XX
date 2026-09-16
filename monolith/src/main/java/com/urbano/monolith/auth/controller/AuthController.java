@@ -1,11 +1,14 @@
 package com.urbano.monolith.auth.controller;
 
+import com.urbano.common.security.JwtClaims;
 import com.urbano.monolith.auth.dto.*;
 import com.urbano.monolith.auth.service.AuthService;
 import com.urbano.monolith.auth.service.OtpService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -18,9 +21,6 @@ public class AuthController {
     private final AuthService authService;
     private final OtpService otpService;
 
-    // ============================================================
-    // EXISTING ENDPOINTS
-    // ============================================================
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
         return ResponseEntity.ok(authService.register(request));
@@ -45,13 +45,9 @@ public class AuthController {
         return ResponseEntity.ok().build();
     }
 
-    // ============================================================
-    // PATCH 1: OTP for phone verification
-    // ============================================================
     @PostMapping("/register/verify-phone")
     public ResponseEntity<PhoneVerifyResponse> sendPhoneOtp(
             @Valid @RequestBody PhoneVerifyRequest request) {
-        // Check if user exists with this phone
         if (!authService.existsByPhone(request.getPhone())) {
             return ResponseEntity.badRequest().body(
                     PhoneVerifyResponse.builder()
@@ -90,9 +86,6 @@ public class AuthController {
         );
     }
 
-    // ============================================================
-    // PATCH 1: Password Reset
-    // ============================================================
     @PostMapping("/password/forgot")
     public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
         UUID userId = authService.findUserIdByIdentifier(request.getIdentifier());
@@ -114,12 +107,18 @@ public class AuthController {
         return ResponseEntity.ok().build();
     }
 
-    // ============================================================
-    // PATCH 2: GET /auth/me
-    // ============================================================
     @GetMapping("/me")
-    public ResponseEntity<UserProfileResponse> getCurrentUser(
-            @RequestHeader("X-User-Id") UUID userId) {
-        return ResponseEntity.ok(authService.getUserProfile(userId));
+    public ResponseEntity<UserProfileResponse> getCurrentUser() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return ResponseEntity.status(401).build();
+        }
+
+        Object principal = auth.getPrincipal();
+        if (principal instanceof JwtClaims claims) {
+            return ResponseEntity.ok(authService.getUserProfile(claims.userId()));
+        }
+
+        return ResponseEntity.status(401).build();
     }
 }

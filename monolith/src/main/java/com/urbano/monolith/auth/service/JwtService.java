@@ -3,12 +3,11 @@ package com.urbano.monolith.auth.service;
 import com.urbano.monolith.auth.entity.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.security.Key;
+import javax.crypto.SecretKey;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -30,7 +29,7 @@ public class JwtService {
     @Value("${jwt.issuer:urbano-homes}")
     private String issuer;
 
-    private Key getSigningKey() {
+    private SecretKey getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes());
     }
 
@@ -40,7 +39,6 @@ public class JwtService {
         claims.put("userId", user.getId().toString());
         claims.put("email", user.getEmail());
         claims.put("type", "access");
-        // ✅ NEW: include pmAccountId so downstream services can read it
         if (user.getPmAccountId() != null) {
             claims.put("pmAccountId", user.getPmAccountId().toString());
         }
@@ -56,12 +54,12 @@ public class JwtService {
 
     private String createToken(Map<String, Object> claims, String subject, long expirySeconds) {
         return Jwts.builder()
-                .setClaims(claims)
-                .setSubject(subject)
-                .setIssuer(issuer)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expirySeconds * 1000))
-                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .claims(claims)
+                .subject(subject)
+                .issuer(issuer)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + expirySeconds * 1000))
+                .signWith(getSigningKey())
                 .compact();
     }
 
@@ -98,10 +96,10 @@ public class JwtService {
 
     private Claims extractAllClaims(String token) {
         return Jwts.parser()
-                .setSigningKey(getSigningKey())
+                .verifyWith(getSigningKey())
                 .build()
-                .parseClaimsJws(token)
-                .getBody();
+                .parseSignedClaims(token)
+                .getPayload();
     }
 
     public boolean isTokenValid(String token) {

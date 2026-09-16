@@ -1,54 +1,47 @@
-# Environment variables
+$dockerignore = @"
+**/target/
+**/*.jar
+**/*.war
+**/*.ear
+**/*.class
+
+**/.idea/
+**/*.iml
+**/.vscode/
+**/.run/
+**/*.swp
+**/*.swo
+**/*~
+
+**/.git/
+**/.gitignore
+**/.gitattributes
+
 .env
-.env.local
-.env.*.local
+.env.*
+**/.env
+**/.env.*
 
-# Maven build output
-target/
-*.jar
-*.war
-*.ear
-*.class
+**/*.log
+**/logs/
 
-# IDE files
-.idea/
-*.iml
-.vscode/
-*.swp
-*.swo
-*~
+docker-compose.yml
+**/postgres_data/
+**/minio_data/
+**/report_data/
 
-# Log files
-*.log
-logs/
+**/.DS_Store
+**/Thumbs.db
 
-# Docker volumes
-postgres_data/
-minio_data/
-report_data/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Application specific
-application-local.yml
-application-dev.yml
-
-# Test artifacts
-test_report.json
-test_debug.log
-e2e-tests/__pycache__/
-*.pyc
-
-# Backup files
+structure.txt
+README.md
 *.bak
 *.bak.*
 *.bak2
 
-# Stray files
-e.yml
-tatus
-
-# IntelliJ run configs
-.run/
+test_report.json
+test_debug.log
+**/__pycache__/
+**/*.pyc
+"@
+[System.IO.File]::WriteAllText("$PWD\.dockerignore", $dockerignore)

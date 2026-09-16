@@ -25,7 +25,8 @@ public class AuditLog {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "user_id", nullable = false)
+    // Nullable: anonymous actions (login, register, OTP) have no user yet.
+    @Column(name = "user_id")
     private String userId;
 
     @Column(name = "username")

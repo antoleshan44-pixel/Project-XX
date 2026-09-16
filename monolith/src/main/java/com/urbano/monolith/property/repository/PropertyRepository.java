@@ -10,5 +10,8 @@ import java.util.UUID;
 
 @Repository
 public interface PropertyRepository extends JpaRepository<Property, UUID> {
-    Page<Property> findByOwnerId(UUID ownerId, Pageable pageable);
+
+    Page<Property> findByPmAccountId(UUID pmAccountId, Pageable pageable);
+
+    Page<Property> findByOwnerIdAndPmAccountId(UUID ownerId, UUID pmAccountId, Pageable pageable);
 }

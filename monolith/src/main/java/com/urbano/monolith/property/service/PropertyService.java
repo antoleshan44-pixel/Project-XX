@@ -1,8 +1,10 @@
 package com.urbano.monolith.property.service;
 
+import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
 import com.urbano.common.enums.PropertyStatus;
 import com.urbano.common.exception.ResourceNotFoundException;
+import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.monolith.property.dto.PropertyDto;
 import com.urbano.monolith.property.dto.PropertyRequest;
 import com.urbano.monolith.property.entity.Property;
@@ -28,6 +30,8 @@ public class PropertyService {
 
     @Transactional
     public PropertyDto createProperty(PropertyRequest request) {
+        UUID pmAccountId = requireTenant();
+
         Property property = Property.builder()
                 .name(request.getName())
                 .description(request.getDescription())
@@ -46,59 +50,39 @@ public class PropertyService {
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
                 .location(request.getAddress() + ", " + request.getCity())
-                .pmAccountId(request.getOwnerId())
+                .pmAccountId(pmAccountId)          // ← always the caller's tenant
                 .createdAt(LocalDateTime.now())
                 .build();
 
         property = propertyRepository.save(property);
-        log.info("Property created: {}", property.getId());
+        log.info("Property created: {} for tenant {}", property.getId(), pmAccountId);
         return mapToDto(property);
     }
 
     public PropertyDto getProperty(UUID id) {
         Property property = propertyRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Property not found"));
+        assertTenantOwns(property);
         return mapToDto(property);
     }
 
     public PagedResponse<PropertyDto> getProperties(Pageable pageable) {
-        Page<Property> propertyPage = propertyRepository.findAll(pageable);
-        List<PropertyDto> content = propertyPage.getContent().stream()
-                .map(this::mapToDto)
-                .collect(Collectors.toList());
-
-        return PagedResponse.<PropertyDto>builder()
-                .content(content)
-                .page(pageable.getPageNumber())
-                .size(pageable.getPageSize())
-                .totalElements(propertyPage.getTotalElements())
-                .totalPages(propertyPage.getTotalPages())
-                .first(propertyPage.isFirst())
-                .last(propertyPage.isLast())
-                .build();
+        UUID pmAccountId = requireTenant();
+        Page<Property> propertyPage = propertyRepository.findByPmAccountId(pmAccountId, pageable);
+        return toPagedResponse(propertyPage, pageable);
     }
 
     public PagedResponse<PropertyDto> getPropertiesByOwner(UUID ownerId, Pageable pageable) {
-        Page<Property> propertyPage = propertyRepository.findByOwnerId(ownerId, pageable);
-        List<PropertyDto> content = propertyPage.getContent().stream()
-                .map(this::mapToDto)
-                .collect(Collectors.toList());
-
-        return PagedResponse.<PropertyDto>builder()
-                .content(content)
-                .page(pageable.getPageNumber())
-                .size(pageable.getPageSize())
-                .totalElements(propertyPage.getTotalElements())
-                .totalPages(propertyPage.getTotalPages())
-                .first(propertyPage.isFirst())
-                .last(propertyPage.isLast())
-                .build();
+        UUID pmAccountId = requireTenant();
+        Page<Property> propertyPage = propertyRepository.findByOwnerIdAndPmAccountId(ownerId, pmAccountId, pageable);
+        return toPagedResponse(propertyPage, pageable);
     }
 
     @Transactional
     public PropertyDto updateProperty(UUID id, PropertyRequest request) {
         Property property = propertyRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Property not found"));
+        assertTenantOwns(property);
 
         property.setName(request.getName());
         property.setDescription(request.getDescription());
@@ -123,6 +107,7 @@ public class PropertyService {
     public void deleteProperty(UUID id) {
         Property property = propertyRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Property not found"));
+        assertTenantOwns(property);
         property.setDeletedAt(LocalDateTime.now());
         propertyRepository.save(property);
         log.info("Property deleted: {}", id);
@@ -132,9 +117,46 @@ public class PropertyService {
     public PropertyDto updatePropertyStatus(UUID id, PropertyStatus status) {
         Property property = propertyRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Property not found"));
+        assertTenantOwns(property);
         property.setStatus(status);
         property = propertyRepository.save(property);
         return mapToDto(property);
+    }
+
+    // -----------------------------------------------------------------
+    // Tenant guards
+    // -----------------------------------------------------------------
+
+    private UUID requireTenant() {
+        UUID pmAccountId = TenantContext.getPmAccountId();
+        if (pmAccountId == null) {
+            throw new UnauthorizedException("No tenant context — authentication required");
+        }
+        return pmAccountId;
+    }
+
+    private void assertTenantOwns(Property property) {
+        UUID pmAccountId = requireTenant();
+        if (property.getPmAccountId() == null
+                || !pmAccountId.equals(property.getPmAccountId())) {
+            throw new UnauthorizedException("Access denied to this property");
+        }
+    }
+
+    private PagedResponse<PropertyDto> toPagedResponse(Page<Property> page, Pageable pageable) {
+        List<PropertyDto> content = page.getContent().stream()
+                .map(this::mapToDto)
+                .collect(Collectors.toList());
+
+        return PagedResponse.<PropertyDto>builder()
+                .content(content)
+                .page(pageable.getPageNumber())
+                .size(pageable.getPageSize())
+                .totalElements(page.getTotalElements())
+                .totalPages(page.getTotalPages())
+                .first(page.isFirst())
+                .last(page.isLast())
+                .build();
     }
 
     private PropertyDto mapToDto(Property property) {
