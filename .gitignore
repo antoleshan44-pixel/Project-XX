@@ -1,47 +1,54 @@
-$dockerignore = @"
-**/target/
-**/*.jar
-**/*.war
-**/*.ear
-**/*.class
+﻿# =============================================================================
+# .gitignore
+# =============================================================================
 
-**/.idea/
-**/*.iml
-**/.vscode/
-**/.run/
-**/*.swp
-**/*.swo
-**/*~
+# --- Build outputs ---------------------------------------------------------
+target/
+build/
+out/
+*.jar
+*.war
+*.ear
+*.class
 
-**/.git/
-**/.gitignore
-**/.gitattributes
+# --- IDE / Editor ---------------------------------------------------------
+.idea/
+*.iml
+.vscode/
+.run/
+*.swp
+*.swo
+*~
 
+# --- Secrets / local env (CRITICAL — never commit these) -------------------
 .env
 .env.*
-**/.env
-**/.env.*
+*.env
+**/application-local.yml
+**/application-*-local.yml
+**/local.ps1
 
-**/*.log
-**/logs/
+# --- Logs & temp ----------------------------------------------------------
+*.log
+logs/
+tmp/
 
-docker-compose.yml
-**/postgres_data/
-**/minio_data/
-**/report_data/
+# --- Local infrastructure data --------------------------------------------
+postgres_data/
+minio_data/
+report_data/
 
-**/.DS_Store
-**/Thumbs.db
+# --- OS cruft -------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.lnk
 
+# --- Repo docs & scratch files --------------------------------------------
 structure.txt
-README.md
 *.bak
 *.bak.*
 *.bak2
-
 test_report.json
 test_debug.log
-**/__pycache__/
-**/*.pyc
-"@
-[System.IO.File]::WriteAllText("$PWD\.dockerignore", $dockerignore)
+__pycache__/
+*.pyc
