@@ -1,28 +1,26 @@
 package com.urbano.monolith.auth.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.UUID;
-
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ResetPasswordRequest {
+public class TenantActivateCodeRequest {
 
-    @NotNull(message = "User ID is required")
-    private UUID userId;
+    @NotBlank(message = "Phone number is required")
+    private String phone;
 
-    @NotBlank(message = "Reset code is required")
+    @NotBlank(message = "Invite code is required")
+    @Size(min = 6, max = 6, message = "Invite code must be 6 digits")
     private String code;
 
-    @NotBlank(message = "New password is required")
+    @NotBlank(message = "Password is required")
     @Size(min = 8, message = "Password must be at least 8 characters")
-    private String newPassword;
+    private String password;
 }

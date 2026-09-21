@@ -1,5 +1,7 @@
 package com.urbano.monolith.property.dto;
 
+import com.urbano.common.enums.PropertyType;
+import com.urbano.common.enums.TransactionType;
 import com.urbano.common.enums.UnitStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -25,11 +27,16 @@ public class UnitDto {
     private Double rentAmount;
     private String currency;
     private Boolean isAvailable;
-    private Boolean published; 
+    private Boolean published;
     private UnitStatus status;
     private String description;
     private String features;
     private List<String> photoUrls;
+
+    // ---- Commit 7 ----
+    private PropertyType propertyType;
+    private TransactionType transactionType;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

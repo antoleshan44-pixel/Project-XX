@@ -2,13 +2,19 @@ package com.urbano.monolith.property.service;
 
 import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
+import com.urbano.common.enums.PropertyType;
+import com.urbano.common.enums.TransactionType;
 import com.urbano.common.enums.UnitStatus;
+import com.urbano.common.enums.UserRole;
 import com.urbano.common.exception.ResourceNotFoundException;
 import com.urbano.common.exception.UnauthorizedException;
+import com.urbano.common.exception.ValidationException;
 import com.urbano.common.storage.PhotoStorageService;
-import com.urbano.monolith.listing.dto.VacantUnitDto;
+import com.urbano.monolith.auth.entity.User;
+import com.urbano.monolith.auth.repository.UserRepository;
 import com.urbano.monolith.property.dto.UnitDto;
 import com.urbano.monolith.property.dto.UnitRequest;
+import com.urbano.monolith.property.dto.VacantUnitDto;
 import com.urbano.monolith.property.entity.Property;
 import com.urbano.monolith.property.entity.Unit;
 import com.urbano.monolith.property.repository.PropertyRepository;
@@ -20,9 +26,13 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -33,6 +43,7 @@ public class UnitService {
 
     private final UnitRepository unitRepository;
     private final PropertyRepository propertyRepository;
+    private final UserRepository userRepository;
     private final PhotoStorageService photoStorageService;
 
     // ============================================================
@@ -67,6 +78,12 @@ public class UnitService {
             throw new UnauthorizedException("Access denied to this property");
         }
 
+        // Commit 7: defaults for the two new fields if caller omitted them
+        PropertyType propertyType = request.getPropertyType() != null
+                ? request.getPropertyType() : PropertyType.APARTMENT;
+        TransactionType transactionType = request.getTransactionType() != null
+                ? request.getTransactionType() : TransactionType.FOR_RENT;
+
         Unit unit = Unit.builder()
                 .property(property)
                 .propertyId(property.getId())
@@ -84,11 +101,14 @@ public class UnitService {
                 .published(true)
                 .label("Unit " + request.getUnitNumber())
                 .photoUrls(new ArrayList<>())
+                .propertyType(propertyType)              // Commit 7
+                .transactionType(transactionType)        // Commit 7
                 .createdAt(LocalDateTime.now())
                 .build();
 
         unit = unitRepository.save(unit);
-        log.info("Unit created: {} for tenant {}", unit.getId(), pmAccountId);
+        log.info("Unit created: {} for tenant {} (propertyType={}, transactionType={})",
+                unit.getId(), pmAccountId, propertyType, transactionType);
         return mapToDto(unit);
     }
 
@@ -125,8 +145,10 @@ public class UnitService {
 
     @Transactional(readOnly = true)
     public List<VacantUnitDto> getVacantPublishedUnitDtos() {
-        return unitRepository.findByIsAvailableTrueAndPublishedTrue().stream()
-                .map(this::mapToVacantUnitDto)
+        List<Unit> units = unitRepository.findByIsAvailableTrueAndPublishedTrue();
+        Map<UUID, String> pmNames = resolvePmNames(units);
+        return units.stream()
+                .map(u -> mapToVacantUnitDto(u, pmNames))
                 .collect(Collectors.toList());
     }
 
@@ -147,6 +169,14 @@ public class UnitService {
         unit.setDescription(request.getDescription());
         unit.setFeatures(request.getFeatures());
 
+        // Commit 7: PATCH semantics — only overwrite if caller provided
+        if (request.getPropertyType() != null) {
+            unit.setPropertyType(request.getPropertyType());
+        }
+        if (request.getTransactionType() != null) {
+            unit.setTransactionType(request.getTransactionType());
+        }
+
         unit = unitRepository.save(unit);
         log.info("Unit updated: {}", unit.getId());
         return mapToDto(unit);
@@ -160,9 +190,22 @@ public class UnitService {
         log.info("Unit deleted: {}", id);
     }
 
+    /**
+     * Commit 7: publish guard.
+     * A unit cannot go live without a transactionType — the mobile UX review
+     * flagged that a listing without one has an ambiguous price.
+     */
     @Transactional
     public UnitDto publishUnit(UUID id) {
         Unit unit = requireOwnedUnit(id);
+        if (unit.getTransactionType() == null) {
+            throw new ValidationException(
+                    "Cannot publish unit: transactionType is required (FOR_SALE or FOR_RENT)");
+        }
+        if (unit.getPropertyType() == null) {
+            throw new ValidationException(
+                    "Cannot publish unit: propertyType is required (APARTMENT, HOUSE, VILLA, STUDIO, PENTHOUSE)");
+        }
         unit.setPublished(true);
         unit = unitRepository.save(unit);
         return mapToDto(unit);
@@ -196,7 +239,8 @@ public class UnitService {
             unit.setIsAvailable(newStatus == UnitStatus.AVAILABLE);
             unit = unitRepository.save(unit);
         } catch (IllegalArgumentException e) {
-            throw new RuntimeException("Invalid status: " + status);
+            // Commit 7 hygiene: typed exception instead of RuntimeException
+            throw new ValidationException("Invalid status: " + status);
         }
         return mapToDto(unit);
     }
@@ -209,9 +253,7 @@ public class UnitService {
 
     // ============================================================
     // INTERNAL — called by LeaseService/MaintenanceService/TenantService
-    // These bypass TenantContext and operate on the raw unit ID.
     // ============================================================
-
     @Transactional
     public void occupyUnit(UUID unitId) {
         Unit unit = unitRepository.findById(unitId)
@@ -252,6 +294,31 @@ public class UnitService {
     }
 
     // ============================================================
+    // PM NAME RESOLUTION (batch)
+    // ============================================================
+    private Map<UUID, String> resolvePmNames(List<Unit> units) {
+        Set<UUID> pmAccountIds = units.stream()
+                .map(Unit::getProperty)
+                .filter(Objects::nonNull)
+                .map(Property::getPmAccountId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        if (pmAccountIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return userRepository
+                .findByPmAccountIdInAndRole(pmAccountIds, UserRole.PM_ADMIN)
+                .stream()
+                .collect(Collectors.toMap(
+                        User::getPmAccountId,
+                        u -> (u.getFirstName() + " " + u.getLastName()).trim(),
+                        (existing, replacement) -> existing
+                ));
+    }
+
+    // ============================================================
     // MAPPERS
     // ============================================================
     private UnitDto mapToDto(Unit unit) {
@@ -271,36 +338,56 @@ public class UnitService {
                 .description(unit.getDescription())
                 .features(unit.getFeatures())
                 .photoUrls(unit.getPhotoUrls() != null ? new ArrayList<>(unit.getPhotoUrls()) : new ArrayList<>())
+                .propertyType(unit.getPropertyType())           // Commit 7
+                .transactionType(unit.getTransactionType())     // Commit 7
                 .createdAt(unit.getCreatedAt())
                 .updatedAt(unit.getUpdatedAt())
                 .build();
     }
 
-    private VacantUnitDto mapToVacantUnitDto(Unit unit) {
+    private VacantUnitDto mapToVacantUnitDto(Unit unit, Map<UUID, String> pmNames) {
         Property property = unit.getProperty();
-        String thumbnail = null;
-        if (unit.getPhotoUrls() != null && !unit.getPhotoUrls().isEmpty()) {
-            thumbnail = unit.getPhotoUrls().get(0);
-        }
+        UUID pmAccountId = property != null ? property.getPmAccountId() : null;
+        String pmName = pmAccountId != null ? pmNames.get(pmAccountId) : null;
+
+        String thumbnail = (unit.getPhotoUrls() != null && !unit.getPhotoUrls().isEmpty())
+                ? unit.getPhotoUrls().get(0)
+                : null;
 
         return VacantUnitDto.builder()
+                // unit-level
                 .id(unit.getId())
                 .propertyId(unit.getPropertyId())
-                .propertyName(property != null ? property.getName() : null)
                 .unitNumber(unit.getUnitNumber())
-                .rentAmount(unit.getRentAmount())
-                .currency(unit.getCurrency())
+                .label(unit.getLabel())
+                .floor(unit.getFloor())
+                .squareFootage(unit.getSquareFootage())
                 .bedrooms(unit.getBedrooms())
                 .bathrooms(unit.getBathrooms())
-                .propertyType(property != null ? property.getType() : null)
-                .squareFootage(unit.getSquareFootage())
-                .address(property != null ? property.getAddress() : null)
-                .city(property != null ? property.getCity() : null)
-                .state(property != null ? property.getState() : null)
+                .rentAmount(unit.getRentAmount() != null
+                        ? BigDecimal.valueOf(unit.getRentAmount())
+                        : null)
+                .currency(unit.getCurrency())
                 .description(unit.getDescription())
+                .features(unit.getFeatures())
+                .photoUrls(unit.getPhotoUrls() != null ? new ArrayList<>(unit.getPhotoUrls()) : new ArrayList<>())
                 .thumbnailUrl(thumbnail)
                 .status(unit.getStatus() != null ? unit.getStatus().name() : null)
                 .published(unit.isPublished())
+                // Commit 7 — unit-level filter fields
+                .unitPropertyType(unit.getPropertyType())
+                .transactionType(unit.getTransactionType())
+                // property-level
+                .propertyName(property != null ? property.getName() : null)
+                .propertyType(property != null ? property.getType() : null)
+                .address(property != null ? property.getAddress() : null)
+                .city(property != null ? property.getCity() : null)
+                .state(property != null ? property.getState() : null)
+                .country(property != null ? property.getCountry() : null)
+                .location(property != null ? property.getLocation() : null)
+                // PM
+                .pmAccountId(pmAccountId)
+                .pmName(pmName)
                 .build();
     }
 

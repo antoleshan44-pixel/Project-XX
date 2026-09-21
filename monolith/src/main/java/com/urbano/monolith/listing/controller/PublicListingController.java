@@ -1,6 +1,7 @@
 package com.urbano.monolith.listing.controller;
 
 import com.urbano.common.dto.PagedResponse;
+import com.urbano.common.enums.TransactionType;
 import com.urbano.monolith.listing.dto.ListingDto;
 import com.urbano.monolith.listing.dto.ListingInquiryRequest;
 import com.urbano.monolith.listing.dto.ListingInquiryResponse;
@@ -26,8 +27,20 @@ public class PublicListingController {
     private final PublicListingService publicListingService;
 
     /**
-     * PATCH 4: Get public listings with filters
-     * No authentication required - public endpoint
+     * Public listings with filters. No authentication required.
+     *
+     * <p>Filter params:</p>
+     * <ul>
+     *   <li>{@code location} — substring match on address/city/state</li>
+     *   <li>{@code minPrice}, {@code maxPrice} — rent range</li>
+     *   <li>{@code bedrooms}, {@code bathrooms} — minimums</li>
+     *   <li>{@code propertyType} — unit-level enum
+     *       (APARTMENT/HOUSE/VILLA/STUDIO/PENTHOUSE). Commit 7.</li>
+     *   <li>{@code transactionType} — FOR_SALE/FOR_RENT. Commit 8.</li>
+     * </ul>
+     *
+     * <p>An invalid enum value in {@code transactionType} returns 400 via
+     * Spring's built-in request-param conversion.</p>
      */
     @GetMapping
     public ResponseEntity<PagedResponse<ListingDto>> getPublicListings(
@@ -35,16 +48,18 @@ public class PublicListingController {
             @RequestParam(value = "minPrice", required = false) BigDecimal minPrice,
             @RequestParam(value = "maxPrice", required = false) BigDecimal maxPrice,
             @RequestParam(value = "bedrooms", required = false) Integer bedrooms,
-            @RequestParam(value = "bathrooms", required = false) Integer bathrooms,  // ✅ Added
-            @RequestParam(value = "propertyType", required = false) String propertyType,  // ✅ Added
+            @RequestParam(value = "bathrooms", required = false) Integer bathrooms,
+            @RequestParam(value = "propertyType", required = false) String propertyType,
+            @RequestParam(value = "transactionType", required = false) TransactionType transactionType,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         return ResponseEntity.ok(publicListingService.getPublicListings(
-                location, minPrice, maxPrice, bedrooms, bathrooms, propertyType, pageable
+                location, minPrice, maxPrice, bedrooms, bathrooms,
+                propertyType, transactionType, pageable
         ));
     }
 
     /**
-     * Get a single public listing by ID
+     * Get a single public listing by ID.
      */
     @GetMapping("/{id}")
     public ResponseEntity<ListingDto> getPublicListing(@PathVariable("id") UUID id) {
@@ -52,7 +67,7 @@ public class PublicListingController {
     }
 
     /**
-     * Submit an inquiry about a listing
+     * Submit an inquiry about a listing.
      */
     @PostMapping("/{id}/inquire")
     public ResponseEntity<ListingInquiryResponse> inquire(

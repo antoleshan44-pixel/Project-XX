@@ -1,5 +1,7 @@
 package com.urbano.monolith.property.entity;
 
+import com.urbano.common.enums.PropertyType;
+import com.urbano.common.enums.TransactionType;
 import com.urbano.common.enums.UnitStatus;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -53,6 +55,15 @@ public class Unit {
     @Column(nullable = false)
     private UnitStatus status;
 
+    // ---- Commit 7 ----
+    @Enumerated(EnumType.STRING)
+    @Column(name = "property_type", nullable = false)
+    private PropertyType propertyType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "transaction_type", nullable = false)
+    private TransactionType transactionType;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "property_id", nullable = false)
     private Property property;
@@ -65,7 +76,6 @@ public class Unit {
     @Column(columnDefinition = "TEXT")
     private String features;
 
-    // Additional fields for service compatibility
     private String label;
 
     private boolean published;

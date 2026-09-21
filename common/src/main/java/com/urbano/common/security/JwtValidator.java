@@ -11,7 +11,7 @@ import javax.crypto.SecretKey;
 @Component
 public class JwtValidator {
 
-    @Value("${jwt.secret:default-secret-change-in-production}")
+    @Value("${jwt.secret}")
     private String secret;
 
     private SecretKey signingKey() {

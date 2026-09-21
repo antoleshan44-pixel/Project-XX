@@ -12,6 +12,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AuthResponse {
+
     private String accessToken;
     private String refreshToken;
     private UUID userId;
@@ -20,6 +21,9 @@ public class AuthResponse {
     private String fullName;
     private String role;
     private UUID pmAccountId;
+    
+    private UUID tenantId;
+
     private String tokenType;
     private Integer expiresIn;
 }

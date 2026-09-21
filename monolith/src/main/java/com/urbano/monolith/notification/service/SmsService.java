@@ -1,5 +1,7 @@
 package com.urbano.monolith.notification.service;
 
+import com.urbano.common.exception.SmsDeliveryException;
+import com.urbano.monolith.auth.config.AfricaTalkingConfig;
 import com.urbano.monolith.notification.dto.NotificationRequest;
 import com.twilio.Twilio;
 import com.twilio.rest.api.v2010.account.Message;
@@ -23,11 +25,12 @@ import java.util.Map;
 public class SmsService {
 
     private final RestTemplate restTemplate;
+    private final AfricaTalkingConfig africaTalkingConfig;
 
     @Value("${sms.provider:twilio}")
     private String smsProvider;
 
-    // Twilio Configuration
+    // Twilio
     @Value("${twilio.account.sid:}")
     private String twilioAccountSid;
 
@@ -37,49 +40,64 @@ public class SmsService {
     @Value("${twilio.phone.number:}")
     private String twilioPhoneNumber;
 
-    // Africa's Talking Configuration
-    @Value("${africastalking.username:}")
-    private String atUsername;
-
-    @Value("${africastalking.api-key:}")
-    private String atApiKey;
-
-    @Value("${africastalking.sender-id:URBANO}")
-    private String atSenderId;
-
     @PostConstruct
     public void init() {
-        if ("twilio".equalsIgnoreCase(smsProvider) && twilioAccountSid != null && !twilioAccountSid.isEmpty()) {
-            Twilio.init(twilioAccountSid, twilioAuthToken);
-            log.info("Twilio SMS service initialized");
+        if ("twilio".equalsIgnoreCase(smsProvider)) {
+            if (isNonBlank(twilioAccountSid) && isNonBlank(twilioAuthToken)) {
+                Twilio.init(twilioAccountSid, twilioAuthToken);
+                log.info("Twilio SMS provider initialized");
+            } else {
+                log.warn("sms.provider=twilio but Twilio credentials are incomplete. " +
+                        "SMS sends will fail until twilio.account.sid and twilio.auth.token are set.");
+            }
+        } else if ("africastalking".equalsIgnoreCase(smsProvider)) {
+            if (africaTalkingConfig.isConfigured()) {
+                log.info("Africa's Talking SMS provider initialized (username={})",
+                        africaTalkingConfig.getUsername());
+            } else {
+                log.warn("sms.provider=africastalking but africastalking.username/apikey " +
+                        "are missing. SMS sends will fail.");
+            }
+        } else {
+            log.warn("Unknown sms.provider='{}'. Supported: twilio, africastalking.", smsProvider);
         }
     }
 
     /**
-     * Send SMS using configured provider
+     * Send SMS via the configured provider.
+     * Throws SmsDeliveryException on any delivery failure (no silent success).
      */
     public void sendSms(String phoneNumber, String message) {
+        if (phoneNumber == null || phoneNumber.isBlank()) {
+            throw new SmsDeliveryException("Recipient phone number is blank");
+        }
+
         String formattedPhone = formatPhoneNumber(phoneNumber);
 
         try {
             if ("twilio".equalsIgnoreCase(smsProvider)) {
+                if (!isNonBlank(twilioAccountSid) || !isNonBlank(twilioAuthToken)
+                        || !isNonBlank(twilioPhoneNumber)) {
+                    throw new SmsDeliveryException("Twilio is not fully configured");
+                }
                 sendViaTwilio(formattedPhone, message);
             } else if ("africastalking".equalsIgnoreCase(smsProvider)) {
+                if (!africaTalkingConfig.isConfigured()) {
+                    throw new SmsDeliveryException("Africa's Talking is not configured");
+                }
                 sendViaAfricaTalking(formattedPhone, message);
             } else {
-                log.warn("No SMS provider configured, logging SMS instead");
-                log.info("SMS to {}: {}", formattedPhone, message);
+                throw new SmsDeliveryException("Unknown SMS provider: " + smsProvider);
             }
-            log.info("SMS sent to: {}", phoneNumber);
+            log.info("SMS sent to {}", maskPhone(phoneNumber));
+        } catch (SmsDeliveryException e) {
+            throw e;
         } catch (Exception e) {
-            log.error("Failed to send SMS to {}: {}", phoneNumber, e.getMessage());
-            throw new RuntimeException("SMS sending failed", e);
+            log.error("Failed to send SMS to {}: {}", maskPhone(phoneNumber), e.getMessage());
+            throw new SmsDeliveryException("SMS sending failed: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Send SMS via Twilio
-     */
     private void sendViaTwilio(String phoneNumber, String message) {
         Message.creator(
                 new PhoneNumber(phoneNumber),
@@ -88,39 +106,29 @@ public class SmsService {
         ).create();
     }
 
-    /**
-     * Send SMS via Africa's Talking
-     */
     private void sendViaAfricaTalking(String phoneNumber, String message) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("apiKey", atApiKey);
+        headers.set("apiKey", africaTalkingConfig.getApiKey());
 
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("username", atUsername);
+        requestBody.put("username", africaTalkingConfig.getUsername());
         requestBody.put("to", phoneNumber);
         requestBody.put("message", message);
-        requestBody.put("sender", atSenderId);
+        requestBody.put("sender", africaTalkingConfig.getSenderId());
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
-        String url = "https://api.africastalking.com/version1/messaging";
+        String url = africaTalkingConfig.getBaseUrl() + "/messaging";
         restTemplate.postForObject(url, entity, String.class);
     }
 
-    /**
-     * Send notification SMS
-     */
     public void sendNotificationSms(NotificationRequest request) {
-        String phone = request.getRecipient();
-        String message = generateSmsContent(request);
-        sendSms(phone, message);
+        sendSms(request.getRecipient(), generateSmsContent(request));
     }
 
     private String generateSmsContent(NotificationRequest request) {
-        StringBuilder content = new StringBuilder();
-        content.append("Urbano Homes: ");
-
+        StringBuilder content = new StringBuilder("Urbano Homes: ");
         switch (request.getType()) {
             case "RENT_REMINDER" -> content.append("Rent reminder - ").append(request.getContent());
             case "LEASE_CONFIRMATION" -> content.append("Lease confirmed - ").append(request.getContent());
@@ -129,8 +137,6 @@ public class SmsService {
             case "TENANT_INVITE" -> content.append("Welcome to Urbano Homes! ").append(request.getContent());
             default -> content.append(request.getContent());
         }
-
-        // Truncate if too long for SMS (160 chars)
         if (content.length() > 160) {
             return content.substring(0, 157) + "...";
         }
@@ -138,16 +144,22 @@ public class SmsService {
     }
 
     private String formatPhoneNumber(String phone) {
-        // Remove any non-digit characters
         String cleaned = phone.replaceAll("[^0-9]", "");
-        // If starts with 0, replace with 254 (Kenya)
         if (cleaned.startsWith("0")) {
             return "254" + cleaned.substring(1);
         }
-        // If doesn't start with 254, add it
         if (!cleaned.startsWith("254")) {
             return "254" + cleaned;
         }
         return cleaned;
+    }
+
+    private static boolean isNonBlank(String s) {
+        return s != null && !s.isBlank();
+    }
+
+    private static String maskPhone(String phone) {
+        if (phone == null || phone.length() < 4) return "***";
+        return "***" + phone.substring(phone.length() - 4);
     }
 }

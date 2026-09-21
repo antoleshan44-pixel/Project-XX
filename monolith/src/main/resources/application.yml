@@ -5,9 +5,9 @@ spring:
   application:
     name: urbano-monolith
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5433}/${DB_NAME:urbano_homes}?sslmode=${DB_SSLMODE:disable}
-    username: ${DB_USER:urbano}
-    password: ${DB_PASSWORD:urbano_dev_password}
+    url: jdbc:postgresql://${DB_HOST:urbano-postgres-happy-stays1.e.aivencloud.com}:${DB_PORT:15692}/${DB_NAME:defaultdb}?sslmode=${DB_SSLMODE:require}
+    username: ${DB_USER:avnadmin}
+    password: ${DB_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 5
@@ -25,11 +25,11 @@ spring:
     table: flyway_schema_history
   data:
     redis:
-      host: ${REDIS_HOST:127.0.0.1}
-      port: ${REDIS_PORT:6379}
+      host: ${REDIS_HOST:urbano-valkey-happy-stays1.h.aivencloud.com}
+      port: ${REDIS_PORT:15693}
       password: ${REDIS_PASSWORD:}
       ssl:
-        enabled: ${REDIS_SSL:false}
+        enabled: ${REDIS_SSL:true}
       timeout: 5000ms
   thymeleaf:
     check-template-location: false
@@ -48,7 +48,7 @@ management:
       show-details: always
 
 jwt:
-  secret: ${JWT_SECRET:change_me_in_production}
+  secret: ${JWT_SECRET}
   access-expiry: 900
   refresh-expiry: 604800
   issuer: urbano-homes

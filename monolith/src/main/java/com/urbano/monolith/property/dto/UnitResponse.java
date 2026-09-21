@@ -1,5 +1,7 @@
 package com.urbano.monolith.property.dto;
 
+import com.urbano.common.enums.PropertyType;
+import com.urbano.common.enums.TransactionType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -24,6 +26,11 @@ public class UnitResponse {
     private String description;
     private List<String> photoUrls;
     private boolean published;
+
+    // ---- Commit 7 ----
+    private PropertyType propertyType;
+    private TransactionType transactionType;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private boolean deleted;

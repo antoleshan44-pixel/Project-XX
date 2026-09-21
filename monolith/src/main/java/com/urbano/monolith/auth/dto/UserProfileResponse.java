@@ -12,6 +12,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 public class UserProfileResponse {
+
     private UUID userId;
     private String email;
     private String phone;
@@ -20,6 +21,11 @@ public class UserProfileResponse {
     private String lastName;
     private String role;
     private UUID pmAccountId;
+
+    private String pmAccountName;
+
+    private UUID tenantId;
+
     private boolean phoneVerified;
     private boolean emailVerified;
     private boolean isActive;

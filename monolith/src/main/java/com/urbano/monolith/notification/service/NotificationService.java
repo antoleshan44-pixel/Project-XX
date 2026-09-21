@@ -1,7 +1,9 @@
 package com.urbano.monolith.notification.service;
 
 import com.urbano.common.dto.PagedResponse;
+import com.urbano.common.exception.NotificationDeliveryException;
 import com.urbano.common.exception.ResourceNotFoundException;
+import com.urbano.common.exception.ValidationException;
 import com.urbano.monolith.notification.dto.NotificationDto;
 import com.urbano.monolith.notification.dto.NotificationRequest;
 import com.urbano.monolith.notification.dto.NotificationResponse;
@@ -32,15 +34,11 @@ public class NotificationService {
     private final SmsService smsService;
     private final PushNotificationService pushNotificationService;
 
-    /**
-     * Send notification (synchronous)
-     */
     @Transactional
     public NotificationResponse sendNotification(NotificationRequest request) {
         log.info("Sending notification: type={}, channel={}, recipient={}",
-                request.getType(), request.getChannel(), request.getRecipient());
+                request.getType(), request.getChannel(), maskRecipient(request.getRecipient()));
 
-        // Create notification record
         Notification notification = Notification.builder()
                 .pmAccountId(request.getPmAccountId())
                 .userId(request.getUserId())
@@ -57,7 +55,6 @@ public class NotificationService {
         notification = notificationRepository.save(notification);
 
         try {
-            // Send based on channel
             String channel = request.getChannel().toUpperCase();
             switch (channel) {
                 case "EMAIL" -> {
@@ -73,11 +70,10 @@ public class NotificationService {
                     notification.setStatus("SENT");
                 }
                 case "IN_APP" -> {
-                    // Just save as read for in-app
                     notification.setStatus("DELIVERED");
                     notification.setSentAt(LocalDateTime.now());
                 }
-                default -> throw new RuntimeException("Unsupported channel: " + channel);
+                default -> throw new ValidationException("Unsupported channel: " + channel);
             }
 
             notification.setSentAt(LocalDateTime.now());
@@ -92,19 +88,24 @@ public class NotificationService {
                     .type(request.getType())
                     .build();
 
+        } catch (ValidationException e) {
+            // Bad input — save failure state and rethrow the typed exception (400)
+            notification.setStatus("FAILED");
+            notification.setErrorMessage(e.getMessage());
+            notification.setDeliveryAttempts(notification.getDeliveryAttempts() + 1);
+            notificationRepository.save(notification);
+            throw e;
         } catch (Exception e) {
             log.error("Failed to send notification: {}", e.getMessage());
             notification.setStatus("FAILED");
             notification.setErrorMessage(e.getMessage());
             notification.setDeliveryAttempts(notification.getDeliveryAttempts() + 1);
             notificationRepository.save(notification);
-            throw new RuntimeException("Notification sending failed: " + e.getMessage());
+            throw new NotificationDeliveryException(
+                    "Notification sending failed: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * Send notification asynchronously
-     */
     @Async
     @Transactional
     public void sendNotificationAsync(NotificationRequest request) {
@@ -115,18 +116,12 @@ public class NotificationService {
         }
     }
 
-    /**
-     * Get notification by ID - Scoped to PM Account
-     */
     public NotificationDto getNotification(UUID id, UUID pmAccountId) {
         Notification notification = notificationRepository.findByIdAndPmAccountId(id, pmAccountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Notification not found"));
         return mapToDto(notification);
     }
 
-    /**
-     * Get all notifications for a user - Scoped to PM Account
-     */
     public PagedResponse<NotificationDto> getUserNotifications(UUID userId, UUID pmAccountId, int page, int size) {
         Page<Notification> notifications = notificationRepository
                 .findByUserIdAndPmAccountIdOrderByCreatedAtDesc(
@@ -136,9 +131,6 @@ public class NotificationService {
         return mapToPagedResponse(notifications);
     }
 
-    /**
-     * Get unread notifications for a user
-     */
     public List<NotificationDto> getUnreadNotifications(UUID userId, UUID pmAccountId) {
         return notificationRepository
                 .findByUserIdAndPmAccountIdAndIsReadFalseOrderByCreatedAtDesc(userId, pmAccountId)
@@ -147,16 +139,10 @@ public class NotificationService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Get unread count for a user
-     */
     public long getUnreadCount(UUID userId, UUID pmAccountId) {
         return notificationRepository.countByUserIdAndPmAccountIdAndIsReadFalse(userId, pmAccountId);
     }
 
-    /**
-     * Mark notification as read - Scoped to PM Account
-     */
     @Transactional
     public NotificationDto markAsRead(UUID id, UUID pmAccountId) {
         Notification notification = notificationRepository.findByIdAndPmAccountId(id, pmAccountId)
@@ -168,9 +154,6 @@ public class NotificationService {
         return mapToDto(notification);
     }
 
-    /**
-     * Mark all notifications as read for a user
-     */
     @Transactional
     public void markAllAsRead(UUID userId, UUID pmAccountId) {
         List<Notification> notifications = notificationRepository
@@ -183,9 +166,6 @@ public class NotificationService {
         notificationRepository.saveAll(notifications);
     }
 
-    /**
-     * Delete notification - Scoped to PM Account
-     */
     @Transactional
     public void deleteNotification(UUID id, UUID pmAccountId) {
         Notification notification = notificationRepository.findByIdAndPmAccountId(id, pmAccountId)
@@ -194,9 +174,6 @@ public class NotificationService {
         notificationRepository.save(notification);
     }
 
-    /**
-     * Get notification statistics - Scoped to PM Account
-     */
     public NotificationStatsDto getStats(UUID pmAccountId) {
         long totalSent = notificationRepository.countByPmAccountId(pmAccountId);
         long totalDelivered = notificationRepository.countByPmAccountIdAndStatus(pmAccountId, "SENT");
@@ -215,9 +192,6 @@ public class NotificationService {
                 .build();
     }
 
-    // ============================================================
-    // MAPPER METHODS
-    // ============================================================
     private NotificationDto mapToDto(Notification notification) {
         return NotificationDto.builder()
                 .id(notification.getId())
@@ -253,5 +227,10 @@ public class NotificationService {
                 .first(page.isFirst())
                 .last(page.isLast())
                 .build();
+    }
+
+    private static String maskRecipient(String recipient) {
+        if (recipient == null || recipient.length() < 4) return "***";
+        return "***" + recipient.substring(recipient.length() - 4);
     }
 }

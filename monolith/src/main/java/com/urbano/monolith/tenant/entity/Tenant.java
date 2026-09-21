@@ -1,5 +1,6 @@
 package com.urbano.monolith.tenant.entity;
 
+import com.urbano.common.enums.InviteStatus;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -36,11 +37,9 @@ public class Tenant {
     @Column(name = "full_name")
     private String fullName;
 
-    // ✅ NEW: First name (NOT NULL in DB)
     @Column(name = "first_name", nullable = false)
     private String firstName;
 
-    // ✅ NEW: Last name (NOT NULL in DB)
     @Column(name = "last_name", nullable = false)
     private String lastName;
 
@@ -70,6 +69,18 @@ public class Tenant {
     @Builder.Default
     private Double creditBalance = 0.0;
 
+    // ---- Commit 6b: invite lifecycle ----
+    @Enumerated(EnumType.STRING)
+    @Column(name = "invite_status", nullable = false)
+    @Builder.Default
+    private InviteStatus inviteStatus = InviteStatus.MANUAL;
+
+    @Column(name = "invited_at")
+    private LocalDateTime invitedAt;
+
+    @Column(name = "activated_at")
+    private LocalDateTime activatedAt;
+
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
@@ -85,7 +96,7 @@ public class Tenant {
     @Builder.Default
     private List<Lease> leases = new ArrayList<>();
 
-    // ✅ Helper methods
+    // ---- Helpers ----
     public String getFullName() {
         return fullName;
     }
@@ -96,5 +107,13 @@ public class Tenant {
 
     public void setIsActive(Boolean isActive) {
         this.isActive = isActive;
+    }
+
+    public boolean isPendingInvite() {
+        return inviteStatus == InviteStatus.PENDING;
+    }
+
+    public boolean isActivated() {
+        return inviteStatus == InviteStatus.ACTIVATED && userId != null;
     }
 }

@@ -88,4 +88,4 @@ public class LeaseController {
             @Valid @RequestBody TerminateLeaseRequest request) {
         return ResponseEntity.ok(leaseService.terminateLease(id, request));
     }
-}
+}   

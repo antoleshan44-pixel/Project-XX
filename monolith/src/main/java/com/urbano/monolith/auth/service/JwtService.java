@@ -17,7 +17,7 @@ import java.util.function.Function;
 @Service
 public class JwtService {
 
-    @Value("${jwt.secret:default-secret-change-in-production}")
+    @Value("${jwt.secret}")
     private String secret;
 
     @Value("${jwt.access-expiry:900}")
@@ -33,6 +33,9 @@ public class JwtService {
         return Keys.hmacShaKeyFor(secret.getBytes());
     }
 
+    // ============================================================
+    // ACCESS TOKEN
+    // ============================================================
     public String generateToken(User user) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("role", user.getRole().name());
@@ -45,6 +48,9 @@ public class JwtService {
         return createToken(claims, user.getEmail(), accessExpiry);
     }
 
+    // ============================================================
+    // REFRESH TOKEN
+    // ============================================================
     public String generateRefreshToken(User user) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("type", "refresh");
@@ -52,17 +58,25 @@ public class JwtService {
         return createToken(claims, user.getEmail(), refreshExpiry);
     }
 
+    // ============================================================
+    // CORE BUILDER — always sets a jti, always issues an iat
+    // ============================================================
     private String createToken(Map<String, Object> claims, String subject, long expirySeconds) {
+        Date now = new Date();
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())              // <- jti (the whole point of this commit)
                 .claims(claims)
                 .subject(subject)
                 .issuer(issuer)
-                .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + expirySeconds * 1000))
+                .issuedAt(now)
+                .expiration(new Date(now.getTime() + expirySeconds * 1000))
                 .signWith(getSigningKey())
                 .compact();
     }
 
+    // ============================================================
+    // EXTRACTORS
+    // ============================================================
     public String extractEmail(String token) {
         return extractClaim(token, Claims::getSubject);
     }
@@ -80,9 +94,17 @@ public class JwtService {
         return extractClaim(token, claims -> claims.get("role", String.class));
     }
 
+    public String extractType(String token) {
+        return extractClaim(token, claims -> claims.get("type", String.class));
+    }
+
     public UUID extractPmAccountId(String token) {
         String pmId = extractClaim(token, claims -> claims.get("pmAccountId", String.class));
         return pmId != null ? UUID.fromString(pmId) : null;
+    }
+
+    public Date extractIssuedAt(String token) {
+        return extractClaim(token, Claims::getIssuedAt);
     }
 
     public Date extractExpiration(String token) {

@@ -4,6 +4,7 @@ import com.urbano.monolith.auth.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -57,6 +58,12 @@ public class SecurityConfig {
 
                         // Public listings
                         .requestMatchers("/api/public/**").permitAll()
+
+                        // Commit 9: public viewing request — a prospective renter
+                        // browsing listings is not necessarily authenticated.
+                        // Only the POST is public; GET on the same path
+                        // (PM-scoped list) still requires auth via .anyRequest().
+                        .requestMatchers(HttpMethod.POST, "/api/units/*/viewings").permitAll()
 
                         // Payment gateway webhooks (Daraja etc.)
                         .requestMatchers("/api/callbacks/**").permitAll()

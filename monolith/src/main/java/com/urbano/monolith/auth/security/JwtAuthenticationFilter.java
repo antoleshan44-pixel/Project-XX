@@ -3,6 +3,7 @@ package com.urbano.monolith.auth.security;
 import com.urbano.common.context.TenantContext;
 import com.urbano.common.enums.UserRole;
 import com.urbano.common.security.JwtClaims;
+import com.urbano.monolith.auth.service.TokenBlacklistService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -10,6 +11,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -26,10 +28,13 @@ import java.util.UUID;
 
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
-    @Value("${jwt.secret:default-secret-change-in-production}")
+    @Value("${jwt.secret}")
     private String secret;
+
+    private final TokenBlacklistService tokenBlacklistService;
 
     private SecretKey signingKey() {
         return Keys.hmacShaKeyFor(secret.getBytes());
@@ -41,14 +46,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain)
             throws ServletException, IOException {
 
+        String method = request.getMethod();
+        String path = request.getRequestURI();
         String authHeader = request.getHeader("Authorization");
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            log.debug("[JWT] No Bearer token for {} {} — passing through unauthenticated", method, path);
             filterChain.doFilter(request, response);
             return;
         }
 
         String token = authHeader.substring(7);
+        log.debug("[JWT] Authenticating {} {} with Bearer token ({} chars)",
+                method, path, token.length());
 
         try {
             Claims claims = Jwts.parser()
@@ -57,8 +67,26 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     .parseSignedClaims(token)
                     .getPayload();
 
+            log.debug("[JWT] Parsed OK: jti={}, sub={}, iat={}, exp={}, type={}",
+                    claims.getId(),
+                    claims.getSubject(),
+                    claims.getIssuedAt(),
+                    claims.getExpiration(),
+                    claims.get("type", String.class));
+
             String type = claims.get("type", String.class);
             if (!"access".equals(type)) {
+                log.debug("[JWT] REJECT: token type is '{}' (expected 'access')", type);
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            // ---- C2 fix: consult blacklist + user epoch ----
+            log.debug("[JWT] Checking revocation for jti={}", claims.getId());
+            boolean revoked = tokenBlacklistService.isTokenRevoked(token);
+            log.debug("[JWT] Revocation check result for jti={}: {}", claims.getId(), revoked);
+            if (revoked) {
+                log.debug("[JWT] REJECT: token is revoked (blacklisted or user-epoch mismatch)");
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -68,7 +96,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String pmAccountIdStr = claims.get("pmAccountId", String.class);
             String email = claims.getSubject();
 
+            log.debug("[JWT] Claims: userId={}, role={}, pmAccountId={}, email={}",
+                    userIdStr, roleStr, pmAccountIdStr, email);
+
             if (userIdStr == null || roleStr == null) {
+                log.debug("[JWT] REJECT: missing userId or role claim");
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -94,9 +126,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 TenantContext.setAdminBypass(true);
             }
 
+            log.debug("[JWT] Authentication set — TenantContext pmAccountId={}, userId={}, role={}",
+                    TenantContext.getPmAccountId(),
+                    TenantContext.getUserId(),
+                    TenantContext.getUserRole());
+
             filterChain.doFilter(request, response);
+
+            log.debug("[JWT] Request completed for {} {}", method, path);
         } catch (Exception ex) {
-            log.debug("JWT validation failed: {}", ex.getMessage());
+            log.debug("[JWT] EXCEPTION during validation: {} — {}",
+                    ex.getClass().getSimpleName(), ex.getMessage());
             filterChain.doFilter(request, response);
         } finally {
             TenantContext.clear();

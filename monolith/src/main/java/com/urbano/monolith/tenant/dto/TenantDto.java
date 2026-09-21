@@ -1,5 +1,6 @@
 package com.urbano.monolith.tenant.dto;
 
+import com.urbano.common.enums.InviteStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -26,6 +27,12 @@ public class TenantDto {
     private String emergencyPhone;
     private Boolean isActive;
     private Double creditBalance;
+
+    // ---- Commit 6b: invite lifecycle ----
+    private InviteStatus inviteStatus;
+    private LocalDateTime invitedAt;
+    private LocalDateTime activatedAt;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

@@ -1,5 +1,7 @@
 package com.urbano.monolith.auth.controller;
 
+import com.urbano.common.exception.UnauthorizedException;
+import com.urbano.common.exception.ValidationException;
 import com.urbano.common.security.JwtClaims;
 import com.urbano.monolith.auth.dto.*;
 import com.urbano.monolith.auth.service.AuthService;
@@ -45,6 +47,24 @@ public class AuthController {
         return ResponseEntity.ok().build();
     }
 
+    /**
+     * Sends a 6-digit OTP to a phone number that already belongs to a
+     * registered user.
+     *
+     * <p><strong>Post-registration only.</strong> The {@code auth_users} row
+     * must already exist — created either by {@code POST /api/auth/register}
+     * (PM_ADMIN signup) or by {@code POST /api/auth/tenant/register}
+     * (TENANT signup). This endpoint does <em>not</em> create accounts and
+     * does <em>not</em> accept anonymous phone numbers. Pre-registration OTP
+     * (verifying a phone before any user row exists) would require a
+     * "pending signup" state that is out of scope by design.</p>
+     *
+     * <p>Returns 400 with {@code verified=false} if the phone is not
+     * registered. The OTP itself is stored in Redis under
+     * {@code otp:register:{phone}} with a 5-minute TTL and delivered via
+     * {@code SmsService}. If SMS delivery fails, the OTP is discarded
+     * (see {@code OtpService.generateAndSendPhoneOtp}).</p>
+     */
     @PostMapping("/register/verify-phone")
     public ResponseEntity<PhoneVerifyResponse> sendPhoneOtp(
             @Valid @RequestBody PhoneVerifyRequest request) {
@@ -65,6 +85,14 @@ public class AuthController {
         );
     }
 
+    /**
+     * Verifies the OTP sent by {@link #sendPhoneOtp}, and on success sets
+     * {@code auth_users.phone_verified = true}.
+     *
+     * <p>Returns 400 with {@code verified=false} for an invalid or expired
+     * code — indistinguishable from "no code was ever sent", deliberately,
+     * so attackers can't use the response to probe account state.</p>
+     */
     @PostMapping("/register/confirm-phone")
     public ResponseEntity<PhoneVerifyResponse> confirmPhone(
             @Valid @RequestBody PhoneVerifyRequest request) {
@@ -101,7 +129,7 @@ public class AuthController {
                 request.getCode()
         );
         if (!verified) {
-            throw new RuntimeException("Invalid or expired reset code");
+            throw new UnauthorizedException("Invalid or expired reset code");
         }
         authService.resetPassword(request.getUserId(), request.getNewPassword());
         return ResponseEntity.ok().build();

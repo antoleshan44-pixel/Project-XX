@@ -11,12 +11,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class RefreshTokenResponse {
     private String accessToken;
+    private String refreshToken;
     private String tokenType;
     private long expiresIn;
-
-    public RefreshTokenResponse(String accessToken) {
-        this.accessToken = accessToken;
-        this.tokenType = "Bearer";
-        this.expiresIn = 900;
-    }
 }

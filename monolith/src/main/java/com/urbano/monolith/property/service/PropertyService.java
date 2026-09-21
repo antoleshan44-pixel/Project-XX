@@ -5,6 +5,7 @@ import com.urbano.common.dto.PagedResponse;
 import com.urbano.common.enums.PropertyStatus;
 import com.urbano.common.exception.ResourceNotFoundException;
 import com.urbano.common.exception.UnauthorizedException;
+import com.urbano.common.exception.ValidationException;
 import com.urbano.monolith.property.dto.PropertyDto;
 import com.urbano.monolith.property.dto.PropertyRequest;
 import com.urbano.monolith.property.entity.Property;
@@ -32,6 +33,18 @@ public class PropertyService {
     public PropertyDto createProperty(PropertyRequest request) {
         UUID pmAccountId = requireTenant();
 
+        // Owner defaults to the creating user (a PM_ADMIN) if the client did not
+        // supply one. The `properties.owner_id` column is NOT NULL, so we must
+        // always have a value here.
+        UUID ownerId = request.getOwnerId() != null
+                ? request.getOwnerId()
+                : TenantContext.getUserId();
+
+        if (ownerId == null) {
+            throw new ValidationException(
+                    "Cannot create property: ownerId is required and no authenticated user is present");
+        }
+
         Property property = Property.builder()
                 .name(request.getName())
                 .description(request.getDescription())
@@ -43,19 +56,20 @@ public class PropertyService {
                 .type(request.getType())
                 .totalUnits(request.getTotalUnits())
                 .status(PropertyStatus.AVAILABLE)
-                .ownerId(request.getOwnerId())
+                .ownerId(ownerId)
                 .ownerName(request.getOwnerName())
                 .ownerEmail(request.getOwnerEmail())
                 .amenities(request.getAmenities())
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
                 .location(request.getAddress() + ", " + request.getCity())
-                .pmAccountId(pmAccountId)          // ← always the caller's tenant
+                .pmAccountId(pmAccountId)
                 .createdAt(LocalDateTime.now())
                 .build();
 
         property = propertyRepository.save(property);
-        log.info("Property created: {} for tenant {}", property.getId(), pmAccountId);
+        log.info("Property created: {} for tenant {} (ownerId={})",
+                property.getId(), pmAccountId, ownerId);
         return mapToDto(property);
     }
 

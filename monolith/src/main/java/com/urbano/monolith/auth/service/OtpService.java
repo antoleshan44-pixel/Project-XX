@@ -1,5 +1,6 @@
 package com.urbano.monolith.auth.service;
 
+import com.urbano.common.exception.SmsDeliveryException;
 import com.urbano.monolith.notification.service.SmsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,44 +25,45 @@ public class OtpService {
     private final SmsService smsService;
 
     /**
-     * Generate a 6-digit OTP and send via SMS
+     * Generate a 6-digit OTP, store it in Redis, and send via SMS.
+     * Throws SmsDeliveryException if SMS fails; in that case the OTP is discarded
+     * so the caller can safely retry without leaving a live code orphaned in Redis.
      */
     public String generateAndSendPhoneOtp(String phone) {
-        String otp = generateOtp();
-        String key = OTP_REGISTER_PREFIX + phone;
-        redisTemplate.opsForValue().set(key, otp, OTP_REGISTER_TTL);
-
-        String message = "Your Urbano Homes verification code is: " + otp;
-        try {
-            smsService.sendSms(phone, message);
-            log.info("OTP sent to {}", phone);
-        } catch (Exception e) {
-            log.error("Failed to send OTP SMS to {}: {}", phone, e.getMessage());
-        }
-        return otp;
+        return generateAndSend(
+                OTP_REGISTER_PREFIX + phone,
+                OTP_REGISTER_TTL,
+                phone,
+                "Your Urbano Homes verification code is: "
+        );
     }
 
-    /**
-     * Generate a 6-digit OTP for password reset
-     */
     public String generateAndSendResetOtp(String userId, String phone) {
-        String otp = generateOtp();
-        String key = OTP_RESET_PREFIX + userId;
-        redisTemplate.opsForValue().set(key, otp, OTP_RESET_TTL);
-
-        String message = "Your Urbano Homes password reset code is: " + otp;
-        try {
-            smsService.sendSms(phone, message);
-            log.info("Reset OTP sent to {}", phone);
-        } catch (Exception e) {
-            log.error("Failed to send reset OTP SMS to {}: {}", phone, e.getMessage());
-        }
-        return otp;
+        return generateAndSend(
+                OTP_RESET_PREFIX + userId,
+                OTP_RESET_TTL,
+                phone,
+                "Your Urbano Homes password reset code is: "
+        );
     }
 
-    /**
-     * Verify OTP for phone verification
-     */
+    private String generateAndSend(String key, Duration ttl, String phone, String prefix) {
+        String otp = generateOtp();
+        String message = prefix + otp;
+
+        redisTemplate.opsForValue().set(key, otp, ttl);
+
+        try {
+            smsService.sendSms(phone, message);
+            log.info("OTP sent to {}", maskPhone(phone));
+            return otp;
+        } catch (SmsDeliveryException e) {
+            redisTemplate.delete(key);
+            log.error("OTP send failed for {} — Redis key removed", maskPhone(phone));
+            throw e;
+        }
+    }
+
     public boolean verifyPhoneOtp(String phone, String code) {
         String key = OTP_REGISTER_PREFIX + phone;
         String storedOtp = redisTemplate.opsForValue().get(key);
@@ -72,9 +74,6 @@ public class OtpService {
         return false;
     }
 
-    /**
-     * Verify OTP for password reset
-     */
     public boolean verifyResetOtp(String userId, String code) {
         String key = OTP_RESET_PREFIX + userId;
         String storedOtp = redisTemplate.opsForValue().get(key);
@@ -85,11 +84,13 @@ public class OtpService {
         return false;
     }
 
-    /**
-     * Generate a secure 6-digit OTP
-     */
     private String generateOtp() {
         int otp = 100000 + secureRandom.nextInt(900000);
         return String.valueOf(otp);
+    }
+
+    private static String maskPhone(String phone) {
+        if (phone == null || phone.length() < 4) return "***";
+        return "***" + phone.substring(phone.length() - 4);
     }
 }
