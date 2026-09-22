@@ -44,6 +44,12 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
+        <!-- ✅ NEW: Apache Commons Pool 2 — required by Lettuce connection pooling
+             (spring.data.redis.lettuce.pool.*) -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+        </dependency>
 
         <!-- Security + JWT -->
         <dependency>

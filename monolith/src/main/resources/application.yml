@@ -31,12 +31,26 @@ spring:
       ssl:
         enabled: ${REDIS_SSL:true}
       timeout: 5000ms
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 8
+          max-idle: 4
+          min-idle: 1
+          max-wait: 2000ms
+          time-between-eviction-runs: 30s
+        shutdown-timeout: 200ms
   thymeleaf:
     check-template-location: false
 
 logging:
   level:
     com.urbano: INFO
+    # Silence the noisy Lettuce reconnect chatter when Aiven's managed Valkey
+    # closes idle connections every ~5 minutes. Lettuce reconnects transparently,
+    # so the logs are just noise.
+    io.lettuce.core.protocol.ConnectionWatchdog: WARN
+    io.lettuce.core.protocol.ReconnectionHandler: WARN
 
 management:
   endpoints:
