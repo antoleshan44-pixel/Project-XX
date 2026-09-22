@@ -31,59 +31,62 @@ public class SecurityConfig {
         @Bean
         public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
                 http
-                                .csrf(AbstractHttpConfigurer::disable)
-                                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                                .exceptionHandling(e -> e
-                                                .authenticationEntryPoint(
-                                                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
-                                .authorizeHttpRequests(auth -> auth
-                                                // Public infrastructure
-                                                .requestMatchers("/actuator/health", "/actuator/info").permitAll()
-                                                .requestMatchers("/actuator/**").permitAll()
+                        .csrf(AbstractHttpConfigurer::disable)
+                        .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                        .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                        .exceptionHandling(e -> e
+                                .authenticationEntryPoint(
+                                        new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                        .authorizeHttpRequests(auth -> auth
+                                // Root — welcome payload for anyone hitting the base URL
+                                .requestMatchers("/").permitAll()
 
-                                                // Auth flows
-                                                .requestMatchers(
-                                                                "/api/auth/register",
-                                                                "/api/auth/register/verify-phone",
-                                                                "/api/auth/register/confirm-phone",
-                                                                "/api/auth/login",
-                                                                "/api/auth/refresh",
-                                                                "/api/auth/password/forgot",
-                                                                "/api/auth/password/reset",
-                                                                "/api/auth/tenant/register",
-                                                                "/api/auth/tenant/activate",
-                                                                "/api/auth/tenant/verify/**")
-                                                .permitAll()
+                                // Public infrastructure
+                                .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                                .requestMatchers("/actuator/**").permitAll()
 
-                                                // Public listings
-                                                .requestMatchers("/api/public/**").permitAll()
+                                // Auth flows
+                                .requestMatchers(
+                                        "/api/auth/register",
+                                        "/api/auth/register/verify-phone",
+                                        "/api/auth/register/confirm-phone",
+                                        "/api/auth/login",
+                                        "/api/auth/refresh",
+                                        "/api/auth/password/forgot",
+                                        "/api/auth/password/reset",
+                                        "/api/auth/tenant/register",
+                                        "/api/auth/tenant/activate",
+                                        "/api/auth/tenant/verify/**")
+                                .permitAll()
 
-                                                // Commit 9: public viewing request — a prospective renter
-                                                // browsing listings is not necessarily authenticated.
-                                                // Only the POST is public; GET on the same path
-                                                // (PM-scoped list) still requires auth via .anyRequest().
-                                                .requestMatchers(HttpMethod.POST, "/api/units/*/viewings").permitAll()
+                                // Public listings
+                                .requestMatchers("/api/public/**").permitAll()
 
-                                                // Payment gateway webhooks (Daraja etc.)
-                                                .requestMatchers("/api/callbacks/**").permitAll()
+                                // Commit 9: public viewing request — a prospective renter
+                                // browsing listings is not necessarily authenticated.
+                                // Only the POST is public; GET on the same path
+                                // (PM-scoped list) still requires auth via .anyRequest().
+                                .requestMatchers(HttpMethod.POST, "/api/units/*/viewings").permitAll()
 
-                                                // WebSocket handshake
-                                                .requestMatchers("/ws/**").permitAll()
-                                                .requestMatchers("/webjars/**").permitAll()
+                                // Payment gateway webhooks (Daraja etc.)
+                                .requestMatchers("/api/callbacks/**").permitAll()
 
-                                                // Swagger / OpenAPI
-                                                .requestMatchers(
-                                                                "/swagger-ui.html",
-                                                                "/swagger-ui/**",
-                                                                "/v3/api-docs/**")
-                                                .permitAll()
+                                // WebSocket handshake
+                                .requestMatchers("/ws/**").permitAll()
+                                .requestMatchers("/webjars/**").permitAll()
 
-                                                // Everything else needs a valid JWT
-                                                .anyRequest().authenticated())
-                                .httpBasic(AbstractHttpConfigurer::disable)
-                                .formLogin(AbstractHttpConfigurer::disable)
-                                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                                // Swagger / OpenAPI
+                                .requestMatchers(
+                                        "/swagger-ui.html",
+                                        "/swagger-ui/**",
+                                        "/v3/api-docs/**")
+                                .permitAll()
+
+                                // Everything else needs a valid JWT
+                                .anyRequest().authenticated())
+                        .httpBasic(AbstractHttpConfigurer::disable)
+                        .formLogin(AbstractHttpConfigurer::disable)
+                        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
                 return http.build();
         }
