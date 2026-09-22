@@ -44,7 +44,8 @@ public class AuthService {
     private final JwtService jwtService;
     private final TokenBlacklistService tokenBlacklistService;
     private final OtpService otpService;
-    private final InviteTokenService inviteTokenService;   // NEW (Commit 6b)
+    private final InviteTokenService inviteTokenService;
+    private final FirebaseTokenService firebaseTokenService;   // NEW (Commit 4)
 
     // ============================================================
     // REGISTER (PM_ADMIN)
@@ -89,6 +90,7 @@ public class AuthService {
 
         String token = jwtService.generateToken(user);
         String refreshToken = jwtService.generateRefreshToken(user);
+        String firebaseCustomToken = mintFirebaseTokenQuietly(user);   // NEW (Commit 4)
 
         return AuthResponse.builder()
                 .accessToken(token)
@@ -100,6 +102,7 @@ public class AuthService {
                 .role(user.getRole().name())
                 .pmAccountId(user.getPmAccountId())
                 .tenantId(null)
+                .firebaseCustomToken(firebaseCustomToken)              // NEW (Commit 4)
                 .tokenType("Bearer")
                 .expiresIn(900)
                 .build();
@@ -123,6 +126,7 @@ public class AuthService {
 
         String token = jwtService.generateToken(user);
         String refreshToken = jwtService.generateRefreshToken(user);
+        String firebaseCustomToken = mintFirebaseTokenQuietly(user);   // NEW (Commit 4)
 
         return AuthResponse.builder()
                 .accessToken(token)
@@ -134,6 +138,7 @@ public class AuthService {
                 .role(user.getRole().name())
                 .pmAccountId(user.getPmAccountId())
                 .tenantId(resolveTenantId(user.getId()))
+                .firebaseCustomToken(firebaseCustomToken)              // NEW (Commit 4)
                 .tokenType("Bearer")
                 .expiresIn(900)
                 .build();
@@ -214,24 +219,8 @@ public class AuthService {
     // ============================================================
     // COMMIT 6b: TENANT ACTIVATION (real implementation)
     // ============================================================
-    /**
-     * Activates a tenant from a PENDING invite.
-     *
-     * <ol>
-     *   <li>Find tenant by phone, invite_status = PENDING</li>
-     *   <li>Verify + consume the 6-digit invite code in Redis</li>
-     *   <li>Create the auth_users row with role=TENANT, phoneVerified=true</li>
-     *   <li>Link tenants.user_id, set is_active=true, invite_status=ACTIVATED</li>
-     *   <li>Return AuthResponse with tenantId populated (the mobile app can
-     *       then hit GET /api/tenants/{tenantId}/payments directly)</li>
-     * </ol>
-     *
-     * <p>Rejects with 409 if a user already exists for this phone or email —
-     * per the design decision not to implicitly reuse accounts.</p>
-     */
     @Transactional
     public AuthResponse activateTenant(TenantActivateCodeRequest request) {
-        // 1. Locate the PENDING tenant by phone
         Tenant tenant = tenantRepository.findByPhone(request.getPhone())
                 .orElseThrow(() -> new UnauthorizedException("Invalid invite"));
 
@@ -239,14 +228,12 @@ public class AuthService {
             throw new UnauthorizedException("Invalid invite");
         }
 
-        // 2. Validate + consume the code (deletes the Redis key on success)
         boolean verified = inviteTokenService.verifyAndConsume(
                 tenant.getId().toString(), request.getCode());
         if (!verified) {
             throw new UnauthorizedException("Invalid or expired invite code");
         }
 
-        // 3. Reject if a user already exists for this phone/email
         if (userRepository.existsByPhone(request.getPhone())) {
             throw new ConflictException("A user account already exists for this phone number");
         }
@@ -254,7 +241,6 @@ public class AuthService {
             throw new ConflictException("A user account already exists for this email");
         }
 
-        // 4. Create the auth_users row
         User user = User.builder()
                 .email(tenant.getEmail())
                 .phone(tenant.getPhone())
@@ -265,22 +251,21 @@ public class AuthService {
                 .pmAccountId(tenant.getPmAccountId())
                 .status(UserStatus.ACTIVE)
                 .isActive(true)
-                .phoneVerified(true)   // they just proved ownership via the SMS code
+                .phoneVerified(true)
                 .emailVerified(false)
                 .build();
         user = userRepository.save(user);
         log.info("Tenant user activated: {} linked to tenant {}", user.getEmail(), tenant.getId());
 
-        // 5. Link tenant → user, flip statuses
         tenant.setUserId(user.getId());
         tenant.setIsActive(true);
         tenant.setInviteStatus(InviteStatus.ACTIVATED);
         tenant.setActivatedAt(LocalDateTime.now());
         tenantRepository.save(tenant);
 
-        // 6. Return the same shape as /auth/login, with tenantId populated
         String access = jwtService.generateToken(user);
         String refresh = jwtService.generateRefreshToken(user);
+        String firebaseCustomToken = mintFirebaseTokenQuietly(user);   // NEW (Commit 4)
 
         return AuthResponse.builder()
                 .accessToken(access)
@@ -291,7 +276,8 @@ public class AuthService {
                 .fullName(user.getFirstName() + " " + user.getLastName())
                 .role(user.getRole().name())
                 .pmAccountId(user.getPmAccountId())
-                .tenantId(tenant.getId())   // <-- the whole point of 6b
+                .tenantId(tenant.getId())
+                .firebaseCustomToken(firebaseCustomToken)              // NEW (Commit 4)
                 .tokenType("Bearer")
                 .expiresIn(900)
                 .build();
@@ -345,9 +331,17 @@ public class AuthService {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
     }
 
-    // ============================================================
-    // GET /auth/me
-    // ============================================================
+
+    private String mintFirebaseTokenQuietly(User user) {
+        try {
+            return firebaseTokenService.mintCustomToken(user.getId());
+        } catch (Exception e) {
+            log.warn("Could not mint Firebase custom token for user {}: {}",
+                    user.getId(), e.getMessage());
+            return null;
+        }
+    }
+
     @Transactional(readOnly = true)
     public UserProfileResponse getUserProfile(UUID userId) {
         User user = userRepository.findById(userId)
@@ -377,9 +371,6 @@ public class AuthService {
                 .build();
     }
 
-    // ============================================================
-    // INTERNAL — resolve tenants.id for a given auth user
-    // ============================================================
     private UUID resolveTenantId(UUID userId) {
         if (userId == null) return null;
         return tenantRepository.findByUserId(userId)

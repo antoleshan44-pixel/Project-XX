@@ -21,8 +21,10 @@ public class AuthResponse {
     private String fullName;
     private String role;
     private UUID pmAccountId;
-    
+
     private UUID tenantId;
+    
+    private String firebaseCustomToken;
 
     private String tokenType;
     private Integer expiresIn;

@@ -41,7 +41,7 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "Bad Request", ex.getMessage());
     }
 
-    // Upstream SMS provider failed — 502 distinguishes this from our own 500s
+    // Upstream SMS provider failed
     @ExceptionHandler(SmsDeliveryException.class)
     public ResponseEntity<Map<String, Object>> handleSmsDelivery(SmsDeliveryException ex) {
         log.error("SMS delivery failed", ex);
@@ -55,6 +55,13 @@ public class GlobalExceptionHandler {
         log.error("Notification delivery failed", ex);
         return build(HttpStatus.BAD_GATEWAY, "Notification Delivery Failed",
                 "Could not deliver notification at this time. Please try again.");
+    }
+
+    // Commit 4: Firebase (or any optional downstream integration) is not configured on this server
+    @ExceptionHandler(ServiceUnavailableException.class)
+    public ResponseEntity<Map<String, Object>> handleServiceUnavailable(ServiceUnavailableException ex) {
+        log.warn("Service unavailable: {}", ex.getMessage());
+        return build(HttpStatus.SERVICE_UNAVAILABLE, "Service Unavailable", ex.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -87,10 +94,6 @@ public class GlobalExceptionHandler {
      * A query or path parameter could not be converted to the expected type —
      * e.g. {@code ?transactionType=NONSENSE} (not a valid enum value),
      * {@code ?minPrice=abc} (not a number).
-     *
-     * <p>Covers {@link MethodArgumentTypeMismatchException} and any other
-     * {@link TypeMismatchException} raised by Spring's argument resolvers.
-     * Without this handler, the catch-all intercepts them and returns 500.</p>
      */
     @ExceptionHandler({MethodArgumentTypeMismatchException.class, TypeMismatchException.class})
     public ResponseEntity<Map<String, Object>> handleTypeMismatch(Exception ex) {

@@ -1,10 +1,10 @@
 package com.urbano.monolith.auth.controller;
 
 import com.urbano.common.exception.UnauthorizedException;
-import com.urbano.common.exception.ValidationException;
 import com.urbano.common.security.JwtClaims;
 import com.urbano.monolith.auth.dto.*;
 import com.urbano.monolith.auth.service.AuthService;
+import com.urbano.monolith.auth.service.FirebaseTokenService;
 import com.urbano.monolith.auth.service.OtpService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +22,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final OtpService otpService;
+    private final FirebaseTokenService firebaseTokenService;   // NEW (Commit 4)
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
@@ -55,15 +56,7 @@ public class AuthController {
      * must already exist — created either by {@code POST /api/auth/register}
      * (PM_ADMIN signup) or by {@code POST /api/auth/tenant/register}
      * (TENANT signup). This endpoint does <em>not</em> create accounts and
-     * does <em>not</em> accept anonymous phone numbers. Pre-registration OTP
-     * (verifying a phone before any user row exists) would require a
-     * "pending signup" state that is out of scope by design.</p>
-     *
-     * <p>Returns 400 with {@code verified=false} if the phone is not
-     * registered. The OTP itself is stored in Redis under
-     * {@code otp:register:{phone}} with a 5-minute TTL and delivered via
-     * {@code SmsService}. If SMS delivery fails, the OTP is discarded
-     * (see {@code OtpService.generateAndSendPhoneOtp}).</p>
+     * does <em>not</em> accept anonymous phone numbers.</p>
      */
     @PostMapping("/register/verify-phone")
     public ResponseEntity<PhoneVerifyResponse> sendPhoneOtp(
@@ -85,14 +78,6 @@ public class AuthController {
         );
     }
 
-    /**
-     * Verifies the OTP sent by {@link #sendPhoneOtp}, and on success sets
-     * {@code auth_users.phone_verified = true}.
-     *
-     * <p>Returns 400 with {@code verified=false} for an invalid or expired
-     * code — indistinguishable from "no code was ever sent", deliberately,
-     * so attackers can't use the response to probe account state.</p>
-     */
     @PostMapping("/register/confirm-phone")
     public ResponseEntity<PhoneVerifyResponse> confirmPhone(
             @Valid @RequestBody PhoneVerifyRequest request) {
@@ -148,5 +133,36 @@ public class AuthController {
         }
 
         return ResponseEntity.status(401).build();
+    }
+
+    /**
+     * Commit 4: mints a Firebase custom token for the authenticated user.
+     *
+     * <p>The client calls {@code signInWithCustomToken(customToken)} to
+     * establish a Firebase Auth session, which then populates
+     * {@code request.auth.uid} in Firestore. Enables real per-user security
+     * rules instead of the test-mode rules that expire 2026-10-17.</p>
+     *
+     * <p>Requires a valid JWT (this endpoint is authenticated via
+     * {@code .anyRequest().authenticated()} in SecurityConfig). Returns
+     * 503 if Firebase is not configured on the server.</p>
+     */
+    @PostMapping("/firebase-token")
+    public ResponseEntity<FirebaseTokenResponse> getFirebaseToken() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return ResponseEntity.status(401).build();
+        }
+
+        Object principal = auth.getPrincipal();
+        if (!(principal instanceof JwtClaims claims)) {
+            return ResponseEntity.status(401).build();
+        }
+
+        String customToken = firebaseTokenService.mintCustomToken(claims.userId());
+        return ResponseEntity.ok(FirebaseTokenResponse.builder()
+                .customToken(customToken)
+                .expiresIn(firebaseTokenService.getCustomTokenTtlSeconds())
+                .build());
     }
 }

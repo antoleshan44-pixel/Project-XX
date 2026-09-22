@@ -85,32 +85,32 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
-        <!-- ✅ NEW: WebSocket (notification-service push notifications) -->
+        <!-- WebSocket (notification-service push notifications) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
 
-        <!-- ✅ NEW: Mail (auth-service OTP, notification-service email) -->
+        <!-- Mail (auth-service OTP, notification-service email) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
 
-        <!-- ✅ NEW: Thymeleaf (email templates) -->
+        <!-- Thymeleaf (email templates) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-thymeleaf</artifactId>
         </dependency>
 
-        <!-- ✅ NEW: Twilio (notification-service SMS) -->
+        <!-- Twilio (notification-service SMS) -->
         <dependency>
             <groupId>com.twilio.sdk</groupId>
             <artifactId>twilio</artifactId>
             <version>10.6.4</version>
         </dependency>
 
-        <!-- ✅ NEW: ShedLock (payment-service scheduled jobs) -->
+        <!-- ShedLock (payment-service scheduled jobs) -->
         <dependency>
             <groupId>net.javacrumbs.shedlock</groupId>
             <artifactId>shedlock-spring</artifactId>
@@ -118,6 +118,13 @@
         <dependency>
             <groupId>net.javacrumbs.shedlock</groupId>
             <artifactId>shedlock-provider-jdbc-template</artifactId>
+        </dependency>
+
+        <!-- ✅ NEW (Commit 4): Firebase Admin SDK for custom-token minting -->
+        <dependency>
+            <groupId>com.google.firebase</groupId>
+            <artifactId>firebase-admin</artifactId>
+            <version>9.4.2</version>
         </dependency>
 
         <!-- Lombok -->
