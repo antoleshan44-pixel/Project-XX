@@ -26,79 +26,85 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+        private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        http
-                .csrf(AbstractHttpConfigurer::disable)
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .exceptionHandling(e -> e
-                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED))
-                )
-                .authorizeHttpRequests(auth -> auth
-                        // Public infrastructure
-                        .requestMatchers("/actuator/health", "/actuator/info").permitAll()
-                        .requestMatchers("/actuator/**").permitAll()
+        @Bean
+        public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+                http
+                                .csrf(AbstractHttpConfigurer::disable)
+                                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                                .exceptionHandling(e -> e
+                                                .authenticationEntryPoint(
+                                                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                                .authorizeHttpRequests(auth -> auth
+                                                // Public infrastructure
+                                                .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                                                .requestMatchers("/actuator/**").permitAll()
 
-                        // Auth flows
-                        .requestMatchers(
-                                "/api/auth/register",
-                                "/api/auth/register/verify-phone",
-                                "/api/auth/register/confirm-phone",
-                                "/api/auth/login",
-                                "/api/auth/refresh",
-                                "/api/auth/password/forgot",
-                                "/api/auth/password/reset",
-                                "/api/auth/tenant/register",
-                                "/api/auth/tenant/activate",
-                                "/api/auth/tenant/verify/**"
-                        ).permitAll()
+                                                // Auth flows
+                                                .requestMatchers(
+                                                                "/api/auth/register",
+                                                                "/api/auth/register/verify-phone",
+                                                                "/api/auth/register/confirm-phone",
+                                                                "/api/auth/login",
+                                                                "/api/auth/refresh",
+                                                                "/api/auth/password/forgot",
+                                                                "/api/auth/password/reset",
+                                                                "/api/auth/tenant/register",
+                                                                "/api/auth/tenant/activate",
+                                                                "/api/auth/tenant/verify/**")
+                                                .permitAll()
 
-                        // Public listings
-                        .requestMatchers("/api/public/**").permitAll()
+                                                // Public listings
+                                                .requestMatchers("/api/public/**").permitAll()
 
-                        // Commit 9: public viewing request — a prospective renter
-                        // browsing listings is not necessarily authenticated.
-                        // Only the POST is public; GET on the same path
-                        // (PM-scoped list) still requires auth via .anyRequest().
-                        .requestMatchers(HttpMethod.POST, "/api/units/*/viewings").permitAll()
+                                                // Commit 9: public viewing request — a prospective renter
+                                                // browsing listings is not necessarily authenticated.
+                                                // Only the POST is public; GET on the same path
+                                                // (PM-scoped list) still requires auth via .anyRequest().
+                                                .requestMatchers(HttpMethod.POST, "/api/units/*/viewings").permitAll()
 
-                        // Payment gateway webhooks (Daraja etc.)
-                        .requestMatchers("/api/callbacks/**").permitAll()
+                                                // Payment gateway webhooks (Daraja etc.)
+                                                .requestMatchers("/api/callbacks/**").permitAll()
 
-                        // WebSocket handshake
-                        .requestMatchers("/ws/**").permitAll()
-                        .requestMatchers("/webjars/**").permitAll()
+                                                // WebSocket handshake
+                                                .requestMatchers("/ws/**").permitAll()
+                                                .requestMatchers("/webjars/**").permitAll()
 
-                        // Everything else needs a valid JWT
-                        .anyRequest().authenticated()
-                )
-                .httpBasic(AbstractHttpConfigurer::disable)
-                .formLogin(AbstractHttpConfigurer::disable)
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                                                // Swagger / OpenAPI
+                                                .requestMatchers(
+                                                                "/swagger-ui.html",
+                                                                "/swagger-ui/**",
+                                                                "/v3/api-docs/**")
+                                                .permitAll()
 
-        return http.build();
-    }
+                                                // Everything else needs a valid JWT
+                                                .anyRequest().authenticated())
+                                .httpBasic(AbstractHttpConfigurer::disable)
+                                .formLogin(AbstractHttpConfigurer::disable)
+                                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
+                return http.build();
+        }
 
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration cfg = new CorsConfiguration();
-        cfg.setAllowedOriginPatterns(List.of("*"));
-        cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        cfg.setAllowedHeaders(List.of("*"));
-        cfg.setExposedHeaders(List.of("Authorization", "X-Correlation-Id"));
-        cfg.setAllowCredentials(true);
-        cfg.setMaxAge(3600L);
+        @Bean
+        public PasswordEncoder passwordEncoder() {
+                return new BCryptPasswordEncoder();
+        }
 
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", cfg);
-        return source;
-    }
+        @Bean
+        public CorsConfigurationSource corsConfigurationSource() {
+                CorsConfiguration cfg = new CorsConfiguration();
+                cfg.setAllowedOriginPatterns(List.of("*"));
+                cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+                cfg.setAllowedHeaders(List.of("*"));
+                cfg.setExposedHeaders(List.of("Authorization", "X-Correlation-Id"));
+                cfg.setAllowCredentials(true);
+                cfg.setMaxAge(3600L);
+
+                UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+                source.registerCorsConfiguration("/**", cfg);
+                return source;
+        }
 }

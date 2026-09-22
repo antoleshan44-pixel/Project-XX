@@ -44,7 +44,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
-        <!-- ✅ NEW: Apache Commons Pool 2 — required by Lettuce connection pooling
+        <!-- Apache Commons Pool 2 — required by Lettuce connection pooling
              (spring.data.redis.lettuce.pool.*) -->
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -126,11 +126,18 @@
             <artifactId>shedlock-provider-jdbc-template</artifactId>
         </dependency>
 
-        <!-- ✅ NEW (Commit 4): Firebase Admin SDK for custom-token minting -->
+        <!-- Firebase Admin SDK for custom-token minting (Commit 4) -->
         <dependency>
             <groupId>com.google.firebase</groupId>
             <artifactId>firebase-admin</artifactId>
             <version>9.4.2</version>
+        </dependency>
+
+        <!-- ✅ NEW: springdoc-openapi — powers /swagger-ui.html and /v3/api-docs -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.7.0</version>
         </dependency>
 
         <!-- Lombok -->
