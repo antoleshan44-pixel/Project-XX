@@ -17,17 +17,17 @@ import java.util.UUID;
 @AllArgsConstructor
 public class ReportRequest {
 
-    @NotNull(message = "PM Account ID is required")
-    private UUID pmAccountId;  // ✅ Added
+
+    private UUID pmAccountId;
 
     @NotBlank(message = "Report name is required")
     private String name;
 
     @NotBlank(message = "Report type is required")
-    private String type;  // PAYMENT_REPORT, TENANT_REPORT, PROPERTY_REPORT, LEASE_REPORT, FINANCIAL_REPORT
+    private String type;
 
     @NotBlank(message = "Report format is required")
-    private String format;  // PDF, EXCEL, CSV, JSON
+    private String format;
 
     private String description;
 
@@ -39,6 +39,7 @@ public class ReportRequest {
     private UUID tenantId;
     private String status;
     private Map<String, Object> additionalParameters;
-
+    
+    @Builder.Default
     private boolean generateAsync = false;
 }

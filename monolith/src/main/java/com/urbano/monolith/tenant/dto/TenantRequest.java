@@ -16,8 +16,7 @@ import java.util.UUID;
 @AllArgsConstructor
 public class TenantRequest {
 
-    @NotNull(message = "PM Account ID is required")
-    private UUID pmAccountId;  // ✅ Added
+    private UUID pmAccountId;
 
     private UUID userId;
 
