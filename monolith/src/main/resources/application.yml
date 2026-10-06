@@ -46,9 +46,6 @@ spring:
 logging:
   level:
     com.urbano: INFO
-    # Silence the noisy Lettuce reconnect chatter when Aiven's managed Valkey
-    # closes idle connections every ~5 minutes. Lettuce reconnects transparently,
-    # so the logs are just noise.
     io.lettuce.core.protocol.ConnectionWatchdog: WARN
     io.lettuce.core.protocol.ReconnectionHandler: WARN
 
@@ -66,3 +63,21 @@ jwt:
   access-expiry: 900
   refresh-expiry: 604800
   issuer: urbano-homes
+
+# ============================================================
+# Phase 2: Super-admin bootstrap
+# ------------------------------------------------------------
+# Consumed by SuperAdminBootstrap on startup. Creates the initial
+# SUPER_ADMIN if none exists in auth_users. Idempotent — safe to
+# leave in place forever.
+#
+# SECURITY: after first login, change the password immediately via
+# /api/admin/me/password (Phase 2D), or by rotating the env var
+# SEED_SUPERADMIN_PASSWORD and deleting the row.
+# ============================================================
+seed:
+  superadmin:
+    email: ${SEED_SUPERADMIN_EMAIL:superadmin@urbano.homes}
+    password: ${SEED_SUPERADMIN_PASSWORD:Billion$2030}
+    first-name: ${SEED_SUPERADMIN_FIRST_NAME:Urbano}
+    last-name: ${SEED_SUPERADMIN_LAST_NAME:Admin}

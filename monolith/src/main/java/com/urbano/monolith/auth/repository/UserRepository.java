@@ -17,13 +17,8 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<User> findByPhone(String phone);
     boolean existsByEmail(String email);
     boolean existsByPhone(String phone);
+    boolean existsByRole(com.urbano.common.enums.UserRole role);
     List<User> findByRole(UserRole role);
 
-    /**
-     * Batch lookup of users by PM account + role.
-     *
-     * <p>Used by {@code UnitService} to resolve PM display names for a page
-     * of public listings in a single query instead of N+1.</p>
-     */
     List<User> findByPmAccountIdInAndRole(Collection<UUID> pmAccountIds, UserRole role);
 }

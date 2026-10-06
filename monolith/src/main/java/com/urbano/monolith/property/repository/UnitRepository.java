@@ -42,8 +42,10 @@ public interface UnitRepository extends JpaRepository<Unit, UUID> {
     Page<Unit> findByIsAvailableTrue(Pageable pageable);
 
     // ============================================================
-    // Internal — used by LeaseService/MaintenanceService for cross-module ops
+    // Internal — used by LeaseService/MaintenanceService/DarajaService for cross-module ops
     // ============================================================
 
     Page<Unit> findByPropertyId(UUID propertyId, Pageable pageable);
+
+    List<Unit> findByUnitNumberIgnoreCaseAndDeletedAtIsNull(String unitNumber);
 }

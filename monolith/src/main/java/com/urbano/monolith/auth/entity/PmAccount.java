@@ -1,5 +1,6 @@
 package com.urbano.monolith.auth.entity;
 
+import com.urbano.common.enums.PmAccountStatus;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -32,8 +33,20 @@ public class PmAccount {
     @Builder.Default
     private Boolean isActive = true;
 
-    // ✅ FIX: Let the DATABASE handle timestamps with DEFAULT CURRENT_TIMESTAMP
-    // Do NOT use @CreationTimestamp or @UpdateTimestamp
+    @Enumerated(EnumType.STRING)
+    @Column(name = "approval_status", nullable = false)
+    @Builder.Default
+    private PmAccountStatus approvalStatus = PmAccountStatus.ACTIVE;
+
+    @Column(name = "suspended_reason")
+    private String suspendedReason;
+
+    @Column(name = "suspended_at")
+    private LocalDateTime suspendedAt;
+
+    @Column(name = "suspended_by")
+    private UUID suspendedBy;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
 

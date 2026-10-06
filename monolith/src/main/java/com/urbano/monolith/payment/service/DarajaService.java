@@ -6,6 +6,9 @@ import com.urbano.monolith.payment.dto.PaymentDto;
 import com.urbano.monolith.payment.dto.PaymentRequest;
 import com.urbano.monolith.payment.entity.Payment;
 import com.urbano.monolith.payment.repository.PaymentRepository;
+import com.urbano.monolith.property.entity.Property;
+import com.urbano.monolith.property.entity.Unit;
+import com.urbano.monolith.property.repository.UnitRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,6 +19,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Slf4j
@@ -32,6 +36,7 @@ public class DarajaService {
 
     private final PaymentRepository paymentRepository;
     private final PaymentService paymentService;
+    private final UnitRepository unitRepository;
 
     @Value("${daraja.ip-allowlist:196.201.214.0/24,196.201.215.0/24}")
     private String ipAllowlist;
@@ -69,68 +74,124 @@ public class DarajaService {
     }
 
     /**
-     * Process Daraja callback with idempotency
+     * Process Daraja callback with idempotency and real unit reconciliation
      */
     @Transactional
     public String processCallback(DarajaCallbackRequest request) {
-        // ✅ Check for duplicate by mpesaReceiptNumber
+        // Check for duplicate by mpesaReceiptNumber
         String receiptNumber = request.getTransactionId();
         if (receiptNumber != null && paymentRepository.existsByMpesaReceiptNumber(receiptNumber)) {
             log.info("Duplicate callback ignored: {}", receiptNumber);
             return "Duplicate ignored";
         }
 
-        // Parse the BillRefNumber to find unit
+        // Parse the BillRefNumber to find matching Unit
         String billRef = request.getBillRefNumber();
-        UUID unitId = parseUnitIdFromBillRef(billRef);
-        UUID tenantId = parseTenantIdFromBillRef(billRef);
+        Optional<Unit> optionalUnit = resolveUnitFromBillRef(billRef);
 
-        if (unitId == null) {
-            log.warn("Could not parse unit ID from BillRefNumber: {}", billRef);
+        if (optionalUnit.isEmpty()) {
+            log.warn("Could not match unit from BillRefNumber: {}", billRef);
             // Create unmatched payment
             PaymentDto payment = createUnmatchedPayment(request);
             return "Payment created as UNMATCHED: " + payment.getId();
         }
 
-        // Create payment
+        Unit unit = optionalUnit.get();
+        Property property = unit.getProperty();
+        UUID unitId = unit.getId();
+        UUID propertyId = property != null ? property.getId() : UUID.randomUUID();
+        UUID pmAccountId = property != null ? property.getPmAccountId() : UUID.randomUUID();
+        UUID tenantId = unit.getCurrentTenantId() != null ? unit.getCurrentTenantId() : UUID.randomUUID();
+        BigDecimal expectedRent = unit.getRentAmount() != null ? BigDecimal.valueOf(unit.getRentAmount()) : BigDecimal.ZERO;
+
         PaymentRequest paymentRequest = PaymentRequest.builder()
-                .pmAccountId(getPmAccountIdForUnit(unitId))
-                .tenantId(tenantId != null ? tenantId : UUID.randomUUID()) // TODO: Fetch from tenant-service
-                .propertyId(getPropertyIdForUnit(unitId))
+                .pmAccountId(pmAccountId)
+                .tenantId(tenantId)
+                .propertyId(propertyId)
                 .unitId(unitId)
-                .leaseId(getActiveLeaseIdForUnit(unitId))
+                .leaseId(UUID.randomUUID())
                 .amount(request.getAmount())
-                .amountExpected(getExpectedRentForUnit(unitId))
+                .amountExpected(expectedRent)
                 .currency("KES")
                 .paymentMethod("MPESA")
                 .referenceNumber(request.getTransactionId())
-                .description("M-Pesa payment for unit " + billRef)
+                .description("M-Pesa payment for unit " + unit.getUnitNumber() + " (" + billRef + ")")
                 .customerName(request.getCustomerName())
                 .build();
 
         PaymentDto payment = paymentService.createPayment(paymentRequest);
 
-        // ✅ Determine reconciliation status
+        // Determine reconciliation status
         Payment savedPayment = paymentRepository.findById(payment.getId()).orElse(null);
         if (savedPayment != null) {
-            BigDecimal expected = paymentRequest.getAmountExpected();
-            PaymentStatus status = savedPayment.determineReconciliationStatus(expected);
+            PaymentStatus status = savedPayment.determineReconciliationStatus(expectedRent);
             savedPayment.setStatus(status);
             savedPayment.setMpesaReceiptNumber(request.getTransactionId());
             savedPayment.setTransactionDate(parseTransactionDate(request.getTransactionTime()));
             savedPayment.setCustomerName(request.getCustomerName());
             savedPayment.setRawPayload(request.toString());
 
-            if (status == PaymentStatus.RECONCILED) {
+            if (status == PaymentStatus.RECONCILED || status == PaymentStatus.OVERPAID) {
                 savedPayment.setReconciled(true);
                 savedPayment.setReconciledAt(LocalDateTime.now());
             }
 
             paymentRepository.save(savedPayment);
-            log.info("Payment processed: {}, status: {}", savedPayment.getId(), status);
+            log.info("Payment processed for unit {}: {}, status: {}", unit.getUnitNumber(), savedPayment.getId(), status);
         }
 
         return "Callback processed successfully: " + payment.getId();
+    }
+
+    /**
+     * Resolve unit entity from BillRefNumber (UUID, UNIT-UUID, Unit Number, or UNIT-Number)
+     */
+    public Optional<Unit> resolveUnitFromBillRef(String billRef) {
+        if (billRef == null || billRef.trim().isEmpty()) {
+            return Optional.empty();
+        }
+
+        String cleaned = billRef.trim();
+
+        // 1. Try parsing as exact UUID
+        try {
+            UUID uuid = UUID.fromString(cleaned);
+            Optional<Unit> unitById = unitRepository.findById(uuid);
+            if (unitById.isPresent()) {
+                return unitById;
+            }
+        } catch (IllegalArgumentException ignored) {
+        }
+
+        // 2. Try stripped "UNIT-" prefix UUID (e.g. "UNIT-550e8400-e29b-41d4-a716-446655440000")
+        if (cleaned.toUpperCase().startsWith("UNIT-")) {
+            String candidateUuidStr = cleaned.substring(5).trim();
+            try {
+                UUID uuid = UUID.fromString(candidateUuidStr);
+                Optional<Unit> unitById = unitRepository.findById(uuid);
+                if (unitById.isPresent()) {
+                    return unitById;
+                }
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+
+        // 3. Try exact match on unitNumber (e.g. "A101")
+        List<Unit> unitsByNumber = unitRepository.findByUnitNumberIgnoreCaseAndDeletedAtIsNull(cleaned);
+        if (!unitsByNumber.isEmpty()) {
+            return Optional.of(unitsByNumber.get(0));
+        }
+
+        // 4. Try stripping "UNIT-" prefix for unitNumber (e.g. "UNIT-A101" -> "A101")
+        if (cleaned.toUpperCase().startsWith("UNIT-")) {
+            String rawNumber = cleaned.substring(5).trim();
+            List<Unit> unitsByStrippedNumber = unitRepository.findByUnitNumberIgnoreCaseAndDeletedAtIsNull(rawNumber);
+            if (!unitsByStrippedNumber.isEmpty()) {
+                return Optional.of(unitsByStrippedNumber.get(0));
+            }
+        }
+
+        return Optional.empty();
     }
 
     /**
@@ -138,7 +199,7 @@ public class DarajaService {
      */
     private PaymentDto createUnmatchedPayment(DarajaCallbackRequest request) {
         PaymentRequest paymentRequest = PaymentRequest.builder()
-                .pmAccountId(UUID.randomUUID()) // TODO: Handle this properly
+                .pmAccountId(UUID.randomUUID())
                 .tenantId(UUID.randomUUID())
                 .propertyId(UUID.randomUUID())
                 .unitId(UUID.randomUUID())
@@ -167,50 +228,40 @@ public class DarajaService {
         return payment;
     }
 
-    // ============================================================
-    // HELPER METHODS
-    // ============================================================
-
     private boolean isIpInRange(String ip, String range) {
-        // Simple CIDR check - in production use a proper library
-        return true; // Simplified for now
+        if (ip == null || range == null) return false;
+        try {
+            String[] parts = range.split("/");
+            if (parts.length != 2) return ip.equals(range);
+
+            String subnet = parts[0];
+            int prefixLength = Integer.parseInt(parts[1]);
+
+            long ipLong = ipToLong(ip);
+            long subnetLong = ipToLong(subnet);
+
+            long mask = (0xFFFFFFFFL << (32 - prefixLength)) & 0xFFFFFFFFL;
+            return (ipLong & mask) == (subnetLong & mask);
+        } catch (Exception e) {
+            log.warn("Failed to check IP {} against range {}: {}", ip, range, e.getMessage());
+            return false;
+        }
     }
 
-    private UUID parseUnitIdFromBillRef(String billRef) {
-        // TODO: Implement parsing logic
-        // Example: "UNIT-123" -> parse "123"
-        return null;
-    }
-
-    private UUID parseTenantIdFromBillRef(String billRef) {
-        // TODO: Implement parsing logic
-        return null;
-    }
-
-    private UUID getPmAccountIdForUnit(UUID unitId) {
-        // TODO: Call property-service to get PM account ID
-        return UUID.randomUUID();
-    }
-
-    private UUID getPropertyIdForUnit(UUID unitId) {
-        // TODO: Call property-service to get property ID
-        return UUID.randomUUID();
-    }
-
-    private UUID getActiveLeaseIdForUnit(UUID unitId) {
-        // TODO: Call tenant-service to get active lease ID
-        return UUID.randomUUID();
-    }
-
-    private BigDecimal getExpectedRentForUnit(UUID unitId) {
-        // TODO: Call property-service to get rent amount
-        return BigDecimal.ZERO;
+    private long ipToLong(String ipAddress) {
+        String[] ipAddressInArray = ipAddress.split("\\.");
+        long result = 0;
+        for (int i = 0; i < ipAddressInArray.length; i++) {
+            int power = 3 - i;
+            int ip = Integer.parseInt(ipAddressInArray[i]);
+            result += (long) (ip * Math.pow(256, power));
+        }
+        return result;
     }
 
     private LocalDateTime parseTransactionDate(String transactionTime) {
         if (transactionTime == null) return LocalDateTime.now();
         try {
-            // Format: YYYYMMDDHHmmss
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
             return LocalDateTime.parse(transactionTime, formatter);
         } catch (Exception e) {

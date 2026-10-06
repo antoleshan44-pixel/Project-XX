@@ -43,7 +43,7 @@ public class SecurityConfig {
 
                                 // Public infrastructure
                                 .requestMatchers("/actuator/health", "/actuator/info").permitAll()
-                                .requestMatchers("/actuator/**").permitAll()
+                                .requestMatchers("/actuator/**").hasRole("SUPER_ADMIN")
 
                                 // Auth flows
                                 .requestMatchers(
@@ -82,6 +82,14 @@ public class SecurityConfig {
                                         "/v3/api-docs/**")
                                 .permitAll()
 
+                                // ============================================================
+                                // Phase 2: SUPER_ADMIN — platform-wide endpoints
+                                // ============================================================
+                                // Must be declared BEFORE .anyRequest() so the pattern
+                                // matches first. The JwtAuthenticationFilter already
+                                // grants ROLE_SUPER_ADMIN authority from the JWT claim.
+                                .requestMatchers("/api/admin/**").hasRole("SUPER_ADMIN")
+
                                 // Everything else needs a valid JWT
                                 .anyRequest().authenticated())
                         .httpBasic(AbstractHttpConfigurer::disable)
@@ -99,7 +107,12 @@ public class SecurityConfig {
         @Bean
         public CorsConfigurationSource corsConfigurationSource() {
                 CorsConfiguration cfg = new CorsConfiguration();
-                cfg.setAllowedOriginPatterns(List.of("*"));
+                String allowedOrigins = System.getenv("CORS_ALLOWED_ORIGINS");
+                if (allowedOrigins != null && !allowedOrigins.trim().isEmpty()) {
+                        cfg.setAllowedOrigins(List.of(allowedOrigins.split(",")));
+                } else {
+                        cfg.setAllowedOriginPatterns(List.of("*"));
+                }
                 cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
                 cfg.setAllowedHeaders(List.of("*"));
                 cfg.setExposedHeaders(List.of("Authorization", "X-Correlation-Id"));

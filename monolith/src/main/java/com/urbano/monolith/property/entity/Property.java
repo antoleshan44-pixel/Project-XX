@@ -1,5 +1,6 @@
 package com.urbano.monolith.property.entity;
 
+import com.urbano.common.enums.PropertyApprovalStatus;
 import com.urbano.common.enums.PropertyStatus;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -74,6 +75,31 @@ public class Property {
     private UUID pmAccountId;
 
     private LocalDateTime deletedAt;
+
+    // ============================================================
+    // Phase 2 — platform approval workflow (Model B)
+    // ============================================================
+    // Every property created by a PM starts PENDING_APPROVAL and is
+    // hidden from tenant-facing listings until a SUPER_ADMIN approves it.
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "approval_status", nullable = false)
+    @Builder.Default
+    private PropertyApprovalStatus approvalStatus = PropertyApprovalStatus.PENDING_APPROVAL;
+
+    @Column(name = "approved_at")
+    private LocalDateTime approvedAt;
+
+    @Column(name = "approved_by")
+    private UUID approvedBy;
+
+    @Column(name = "rejection_reason", length = 512)
+    private String rejectionReason;
+
+    @Column(name = "suspended_reason", length = 512)
+    private String suspendedReason;
+
+    // ============================================================
 
     @OneToMany(mappedBy = "property", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @Builder.Default

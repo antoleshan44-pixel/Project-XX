@@ -1,5 +1,6 @@
 package com.urbano.monolith.listing;
 
+import com.urbano.common.enums.PropertyApprovalStatus;
 import com.urbano.common.enums.PropertyStatus;
 import com.urbano.common.enums.PropertyType;
 import com.urbano.common.enums.TransactionType;
@@ -45,6 +46,7 @@ public class PublicListingControllerIntegrationTest extends BaseIntegrationTest 
                 .type("RESIDENTIAL")
                 .totalUnits(10)
                 .status(PropertyStatus.AVAILABLE)
+                .approvalStatus(PropertyApprovalStatus.APPROVED)
                 .build();
         Property savedProp = propertyRepository.save(property);
 
@@ -85,6 +87,7 @@ public class PublicListingControllerIntegrationTest extends BaseIntegrationTest 
                 .type("STUDIO")
                 .totalUnits(5)
                 .status(PropertyStatus.AVAILABLE)
+                .approvalStatus(PropertyApprovalStatus.APPROVED)
                 .build();
         Property savedProp = propertyRepository.save(property);
 

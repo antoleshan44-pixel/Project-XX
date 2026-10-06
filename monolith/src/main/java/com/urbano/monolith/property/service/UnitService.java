@@ -21,6 +21,7 @@ import com.urbano.monolith.property.repository.PropertyRepository;
 import com.urbano.monolith.property.repository.UnitRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -67,6 +68,7 @@ public class UnitService {
     // CREATE
     // ============================================================
     @Transactional
+    @CacheEvict(value = {"publicListingsV5", "listingDetailsV4"}, allEntries = true)
     public UnitDto createUnit(UnitRequest request) {
         UUID pmAccountId = requireTenant();
 
@@ -156,6 +158,7 @@ public class UnitService {
     // UPDATE
     // ============================================================
     @Transactional
+    @CacheEvict(value = {"publicListingsV5", "listingDetailsV4"}, allEntries = true)
     public UnitDto updateUnit(UUID id, UnitRequest request) {
         Unit unit = requireOwnedUnit(id);
 
@@ -183,6 +186,7 @@ public class UnitService {
     }
 
     @Transactional
+    @CacheEvict(value = {"publicListingsV5", "listingDetailsV4"}, allEntries = true)
     public void deleteUnit(UUID id) {
         Unit unit = requireOwnedUnit(id);
         unit.setDeletedAt(LocalDateTime.now());
@@ -196,6 +200,7 @@ public class UnitService {
      * flagged that a listing without one has an ambiguous price.
      */
     @Transactional
+    @CacheEvict(value = {"publicListingsV5", "listingDetailsV4"}, allEntries = true)
     public UnitDto publishUnit(UUID id) {
         Unit unit = requireOwnedUnit(id);
         if (unit.getTransactionType() == null) {
@@ -212,6 +217,7 @@ public class UnitService {
     }
 
     @Transactional
+    @CacheEvict(value = {"publicListingsV5", "listingDetailsV4"}, allEntries = true)
     public UnitDto unpublishUnit(UUID id) {
         Unit unit = requireOwnedUnit(id);
         unit.setPublished(false);
@@ -231,6 +237,7 @@ public class UnitService {
     }
 
     @Transactional
+    @CacheEvict(value = {"publicListingsV5", "listingDetailsV4"}, allEntries = true)
     public UnitDto updateStatus(UUID id, String status) {
         Unit unit = requireOwnedUnit(id);
         try {
@@ -255,6 +262,7 @@ public class UnitService {
     // INTERNAL — called by LeaseService/MaintenanceService/TenantService
     // ============================================================
     @Transactional
+    @CacheEvict(value = {"publicListingsV5", "listingDetailsV4"}, allEntries = true)
     public void occupyUnit(UUID unitId) {
         Unit unit = unitRepository.findById(unitId)
                 .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
@@ -267,6 +275,7 @@ public class UnitService {
     }
 
     @Transactional
+    @CacheEvict(value = {"publicListingsV5", "listingDetailsV4"}, allEntries = true)
     public void vacateUnit(UUID unitId) {
         Unit unit = unitRepository.findById(unitId)
                 .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
@@ -279,6 +288,7 @@ public class UnitService {
     }
 
     @Transactional
+    @CacheEvict(value = {"publicListingsV5", "listingDetailsV4"}, allEntries = true)
     public void setUnitUnderMaintenance(UUID unitId) {
         Unit unit = unitRepository.findById(unitId)
                 .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
@@ -385,6 +395,8 @@ public class UnitService {
                 .state(property != null ? property.getState() : null)
                 .country(property != null ? property.getCountry() : null)
                 .location(property != null ? property.getLocation() : null)
+                // Phase 2 (Model B) — platform-approval gate (null-safe)
+                .propertyApprovalStatus(property != null ? property.getApprovalStatus() : null)
                 // PM
                 .pmAccountId(pmAccountId)
                 .pmName(pmName)

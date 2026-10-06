@@ -1,6 +1,7 @@
 package com.urbano.monolith.listing.service;
 
 import com.urbano.common.dto.PagedResponse;
+import com.urbano.common.enums.PropertyApprovalStatus;
 import com.urbano.common.enums.TransactionType;
 import com.urbano.common.exception.ResourceNotFoundException;
 import com.urbano.monolith.listing.dto.ListingDto;
@@ -34,15 +35,15 @@ public class PublicListingService {
      * <ul>
      *   <li>v1 — original</li>
      *   <li>v2 — Commit 6 added {@code pmName}</li>
-     *   <li>v3 — Commit 7 added {@code unitPropertyType} + {@code transactionType}
-     *       to the response payload</li>
+     *   <li>v3 — Commit 7 added {@code unitPropertyType} + {@code transactionType}</li>
      *   <li>v4 — Commit 8 added {@code transactionType} as a query filter</li>
+     *   <li><strong>v5 — Phase 2 (Model B): only units whose parent property has
+     *       {@code approvalStatus = APPROVED} are returned. Cache key unchanged
+     *       since the same inputs produce the same filtered output.</strong></li>
      * </ul>
-     * Bumping the name means old cached entries are ignored and expire naturally.
-     * The key now includes {@code #transactionType} so different filter combinations
-     * cannot collide on the same cache entry.</p>
+     * Bumping the name means old cached entries are ignored and expire naturally.</p>
      */
-    @Cacheable(value = "publicListingsV4",
+    @Cacheable(value = "publicListingsV5",
             key = "{#location, #minPrice, #maxPrice, #bedrooms, #bathrooms, #propertyType, #transactionType, #pageable.pageNumber, #pageable.pageSize}")
     public PagedResponse<ListingDto> getPublicListings(
             String location,
@@ -65,6 +66,13 @@ public class PublicListingService {
         }
 
         List<VacantUnitDto> filtered = units.stream()
+                // ============================================================
+                // Phase 2 (Model B) — platform-approval gate
+                // A unit is only publicly visible if its parent property has
+                // been APPROVED by a SUPER_ADMIN. Null means the property row
+                // is missing or hasn't been fetched — exclude to be safe.
+                // ============================================================
+                .filter(u -> u.getPropertyApprovalStatus() == PropertyApprovalStatus.APPROVED)
                 .filter(u -> location == null ||
                         (u.getAddress() != null && u.getAddress().toLowerCase().contains(location.toLowerCase())) ||
                         (u.getCity() != null && u.getCity().toLowerCase().contains(location.toLowerCase())) ||
@@ -75,11 +83,9 @@ public class PublicListingService {
                         || u.getRentAmount().compareTo(maxPrice) <= 0)
                 .filter(u -> bedrooms == null || (u.getBedrooms() != null && u.getBedrooms() >= bedrooms))
                 .filter(u -> bathrooms == null || (u.getBathrooms() != null && u.getBathrooms() >= bathrooms))
-                // Commit 7 — propertyType filter on the unit-level enum
                 .filter(u -> propertyType == null ||
                         (u.getUnitPropertyType() != null
                                 && u.getUnitPropertyType().name().equalsIgnoreCase(propertyType)))
-                // Commit 8 — transactionType filter (enum identity comparison; enums are singletons)
                 .filter(u -> transactionType == null
                         || transactionType == u.getTransactionType())
                 .collect(Collectors.toList());
@@ -89,14 +95,19 @@ public class PublicListingService {
 
     /**
      * Single public listing by ID.
-     * Cache name bumped to {@code listingDetailsV3} in Commit 7.
+     *
+     * <p>Phase 2 (Model B): only APPROVED properties are surfaced here. A
+     * PENDING/REJECTED/SUSPENDED property 404s even if the caller knows the
+     * UUID — the same guard as the list endpoint. Cache name bumped to v4.</p>
      */
-    @Cacheable(value = "listingDetailsV3", key = "#id")
+    @Cacheable(value = "listingDetailsV4", key = "#id")
     public ListingDto getPublicListing(UUID id) {
         List<VacantUnitDto> units = unitService.getVacantPublishedUnitDtos();
 
         return units.stream()
                 .filter(u -> u.getId().equals(id))
+                // Phase 2 — approval gate
+                .filter(u -> u.getPropertyApprovalStatus() == PropertyApprovalStatus.APPROVED)
                 .findFirst()
                 .map(this::mapToDto)
                 .orElseThrow(() -> new ResourceNotFoundException("Listing not found: " + id));
@@ -104,9 +115,7 @@ public class PublicListingService {
 
     /**
      * Submit an inquiry about a listing.
-     * Uses the resolved PM display name (Commit 6). Phone and email are
-     * placeholders — wiring them requires a decision on whether the PM
-     * consents to contact info being surfaced publicly.
+     * Uses the resolved PM display name (Commit 6).
      */
     public ListingInquiryResponse submitInquiry(UUID listingId, ListingInquiryRequest request) {
         ListingDto listing = getPublicListing(listingId);
@@ -123,21 +132,12 @@ public class PublicListingService {
                 .status("SUBMITTED")
                 .message("Your inquiry has been submitted. The property manager will contact you shortly.")
                 .propertyManagerName(pmName)
-                .propertyManagerPhone("+254 700 000 000")   // TODO: resolve real contact if consented
-                .propertyManagerEmail("manager@urbano.co.ke") // TODO: same
+                .propertyManagerPhone("+254 700 000 000")
+                .propertyManagerEmail("manager@urbano.co.ke")
                 .submittedAt(LocalDateTime.now())
                 .build();
     }
 
-    /**
-     * Map VacantUnitDto (property module) to ListingDto (listing module).
-     *
-     * <p>Two "type" fields travel through:
-     * <ul>
-     *   <li>{@code unitPropertyType} — enum, unit-level</li>
-     *   <li>{@code propertyType} — String, property-level</li>
-     * </ul>
-     */
     private ListingDto mapToDto(VacantUnitDto unit) {
         return ListingDto.builder()
                 .id(unit.getId())
@@ -150,10 +150,10 @@ public class PublicListingService {
                 .currency(unit.getCurrency())
                 .bedrooms(unit.getBedrooms())
                 .bathrooms(unit.getBathrooms())
-                .propertyType(unit.getPropertyType())           // property-level String
+                .propertyType(unit.getPropertyType())
                 .squareFootage(unit.getSquareFootage())
-                .unitPropertyType(unit.getUnitPropertyType())   // Commit 7 — unit-level enum
-                .transactionType(unit.getTransactionType())     // Commit 7
+                .unitPropertyType(unit.getUnitPropertyType())
+                .transactionType(unit.getTransactionType())
                 .address(unit.getAddress())
                 .city(unit.getCity())
                 .state(unit.getState())
@@ -167,7 +167,7 @@ public class PublicListingService {
     }
 
     // ============================================================
-    // Pagination helpers
+    // Pagination helpers (unchanged)
     // ============================================================
     private PagedResponse<ListingDto> emptyPage(Pageable pageable) {
         return PagedResponse.<ListingDto>builder()

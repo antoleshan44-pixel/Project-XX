@@ -66,9 +66,7 @@ public class PublicListingController {
         return ResponseEntity.ok(publicListingService.getPublicListing(id));
     }
 
-    /**
-     * Submit an inquiry about a listing.
-     */
+    
     @PostMapping("/{id}/inquire")
     public ResponseEntity<ListingInquiryResponse> inquire(
             @PathVariable("id") UUID id,

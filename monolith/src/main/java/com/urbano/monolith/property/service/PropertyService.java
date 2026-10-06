@@ -2,6 +2,7 @@ package com.urbano.monolith.property.service;
 
 import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
+import com.urbano.common.enums.PropertyApprovalStatus;
 import com.urbano.common.enums.PropertyStatus;
 import com.urbano.common.exception.ResourceNotFoundException;
 import com.urbano.common.exception.UnauthorizedException;
@@ -56,6 +57,9 @@ public class PropertyService {
                 .type(request.getType())
                 .totalUnits(request.getTotalUnits())
                 .status(PropertyStatus.AVAILABLE)
+                // Model B — every new property starts PENDING_APPROVAL and is
+                // hidden from tenant-facing listings until a SUPER_ADMIN approves it.
+                .approvalStatus(PropertyApprovalStatus.PENDING_APPROVAL)
                 .ownerId(ownerId)
                 .ownerName(request.getOwnerName())
                 .ownerEmail(request.getOwnerEmail())
@@ -68,7 +72,7 @@ public class PropertyService {
                 .build();
 
         property = propertyRepository.save(property);
-        log.info("Property created: {} for tenant {} (ownerId={})",
+        log.info("Property created: {} for tenant {} (ownerId={}) — approvalStatus=PENDING_APPROVAL",
                 property.getId(), pmAccountId, ownerId);
         return mapToDto(property);
     }
@@ -112,6 +116,15 @@ public class PropertyService {
         property.setLongitude(request.getLongitude());
         property.setLocation(request.getAddress() + ", " + request.getCity());
 
+        // Model B — an edit to a REJECTED property moves it back to PENDING_APPROVAL.
+        // An edit to an APPROVED property keeps it APPROVED (super-admin must
+        // explicitly suspend if they want to hide it again).
+        if (property.getApprovalStatus() == PropertyApprovalStatus.REJECTED) {
+            property.setApprovalStatus(PropertyApprovalStatus.PENDING_APPROVAL);
+            property.setRejectionReason(null);
+            log.info("Property {} resubmitted for approval after edit", property.getId());
+        }
+
         property = propertyRepository.save(property);
         log.info("Property updated: {}", property.getId());
         return mapToDto(property);
@@ -139,9 +152,16 @@ public class PropertyService {
 
     // -----------------------------------------------------------------
     // Tenant guards
+    //
+    // Phase 2: SUPER_ADMIN is exempt from these guards. The JWT filter
+    // sets TenantContext.isAdminBypass() = true for SUPER_ADMIN, so both
+    // requireTenant() and assertTenantOwns() are no-ops for them.
     // -----------------------------------------------------------------
 
     private UUID requireTenant() {
+        if (TenantContext.isAdminBypass()) {
+            return null;
+        }
         UUID pmAccountId = TenantContext.getPmAccountId();
         if (pmAccountId == null) {
             throw new UnauthorizedException("No tenant context — authentication required");
@@ -150,7 +170,13 @@ public class PropertyService {
     }
 
     private void assertTenantOwns(Property property) {
-        UUID pmAccountId = requireTenant();
+        if (TenantContext.isAdminBypass()) {
+            return;
+        }
+        UUID pmAccountId = TenantContext.getPmAccountId();
+        if (pmAccountId == null) {
+            throw new UnauthorizedException("No tenant context — authentication required");
+        }
         if (property.getPmAccountId() == null
                 || !pmAccountId.equals(property.getPmAccountId())) {
             throw new UnauthorizedException("Access denied to this property");
@@ -194,6 +220,11 @@ public class PropertyService {
                 .longitude(property.getLongitude())
                 .createdAt(property.getCreatedAt())
                 .updatedAt(property.getUpdatedAt())
+                // Phase 2 — approval fields
+                .approvalStatus(property.getApprovalStatus())
+                .approvedAt(property.getApprovedAt())
+                .approvedBy(property.getApprovedBy())
+                .rejectionReason(property.getRejectionReason())
                 .build();
     }
 }

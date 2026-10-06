@@ -1,5 +1,6 @@
 package com.urbano.monolith.property.dto;
 
+import com.urbano.common.enums.PropertyApprovalStatus;
 import com.urbano.common.enums.PropertyStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -14,6 +15,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 public class PropertyDto {
+
     private UUID id;
     private String name;
     private String description;
@@ -33,4 +35,13 @@ public class PropertyDto {
     private Double longitude;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    // ============================================================
+    // Phase 2 — platform approval fields (Model B)
+    // ============================================================
+
+    private PropertyApprovalStatus approvalStatus;
+    private LocalDateTime approvedAt;
+    private UUID approvedBy;
+    private String rejectionReason;
 }
