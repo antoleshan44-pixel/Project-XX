@@ -1,0 +1,265 @@
+{
+	"info": {
+		"_postman_id": "b1a2c3d4-e5f6-7890-1234-56789abcdef0",
+		"name": "Urbano Homes API v1.0.0",
+		"description": "Complete Postman API Collection for Urbano Homes PropTech Monolith Platform. Includes pre-configured Bearer token headers and sample JSON payloads.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:9090",
+			"type": "string"
+		},
+		{
+			"key": "authToken",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "1. Authentication",
+			"item": [
+				{
+					"name": "Register Property Manager",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"fullName\": \"Jane Doe\",\n  \"email\": \"pm@urbano.com\",\n  \"password\": \"Password123!\",\n  \"phone\": \"+254711223344\",\n  \"companyName\": \"Urbano Properties Ltd\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/register",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "register"]
+						}
+					}
+				},
+				{
+					"name": "Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"pm@urbano.com\",\n  \"password\": \"Password123!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "Activate Tenant Account",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"phone\": \"+254700000000\",\n  \"code\": \"123456\",\n  \"newPassword\": \"TenantPass123!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/tenant/activate",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "tenant", "activate"]
+						}
+					}
+				},
+				{
+					"name": "Get Current User Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{authToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/me",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "me"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "2. Public Portal",
+			"item": [
+				{
+					"name": "Get Public Listings",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/public/listings?location=Nairobi&bedrooms=2&transactionType=FOR_RENT",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "public", "listings"],
+							"query": [
+								{ "key": "location", "value": "Nairobi" },
+								{ "key": "bedrooms", "value": "2" },
+								{ "key": "transactionType", "value": "FOR_RENT" }
+							]
+						}
+					}
+				},
+				{
+					"name": "Inquire About Listing",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"John Buyer\",\n  \"email\": \"john@gmail.com\",\n  \"phone\": \"+254722000000\",\n  \"message\": \"Is this unit available for viewing this Saturday?\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/public/listings/{{listingId}}/inquire",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "public", "listings", "{{listingId}}", "inquire"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "3. Properties & Units",
+			"item": [
+				{
+					"name": "Create Property",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{authToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Kilimani Heights\",\n  \"address\": \"Ring Road Kilimani\",\n  \"city\": \"Nairobi\",\n  \"type\": \"RESIDENTIAL\",\n  \"totalUnits\": 20,\n  \"ownerId\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/properties",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "properties"]
+						}
+					}
+				},
+				{
+					"name": "Create Unit",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{authToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"propertyId\": \"{{propertyId}}\",\n  \"unitNumber\": \"B204\",\n  \"floor\": 2,\n  \"bedrooms\": 2,\n  \"bathrooms\": 2,\n  \"rentAmount\": 50000.00,\n  \"currency\": \"KES\",\n  \"propertyType\": \"APARTMENT\",\n  \"transactionType\": \"FOR_RENT\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/units",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "units"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "4. Payments & M-Pesa",
+			"item": [
+				{
+					"name": "Initiate M-Pesa STK Push",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{authToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"phoneNumber\": \"254712345678\",\n  \"amount\": 45000.00,\n  \"unitId\": \"{{unitId}}\",\n  \"accountReference\": \"Rent-A101\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/payments/stk-push",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "payments", "stk-push"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "5. Super Admin Moderation",
+			"item": [
+				{
+					"name": "Approve Property",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{superAdminToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reason\": \"Property documents verified and compliant.\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/properties/{{propertyId}}/approve",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "admin", "properties", "{{propertyId}}", "approve"]
+						}
+					}
+				}
+			]
+		}
+	]
+}
