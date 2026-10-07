@@ -4,42 +4,44 @@ import com.urbano.common.context.TenantContext;
 import com.urbano.common.enums.LeaseStatus;
 import com.urbano.common.enums.MaintenanceStatus;
 import com.urbano.common.enums.PaymentStatus;
-import com.urbano.common.enums.UnitStatus;
 import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.monolith.dashboard.dto.DashboardSummaryResponse;
 import com.urbano.monolith.dashboard.dto.PropertyOccupancyDto;
 import com.urbano.monolith.maintenance.repository.MaintenanceRepository;
-import com.urbano.monolith.payment.entity.Payment;
 import com.urbano.monolith.payment.repository.PaymentRepository;
-import com.urbano.monolith.property.entity.Property;
-import com.urbano.monolith.property.entity.Unit;
 import com.urbano.monolith.property.repository.PropertyRepository;
-import com.urbano.monolith.property.repository.UnitRepository;
-import com.urbano.monolith.tenant.entity.Lease;
 import com.urbano.monolith.tenant.repository.LeaseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class DashboardSummaryService {
 
+    private static final Set<PaymentStatus> REVENUE_STATUSES =
+            EnumSet.of(PaymentStatus.COMPLETED, PaymentStatus.RECONCILED, PaymentStatus.PAID);
+
+    private static final Set<MaintenanceStatus> OPEN_MAINTENANCE_STATUSES =
+            EnumSet.of(MaintenanceStatus.SUBMITTED, MaintenanceStatus.IN_PROGRESS, MaintenanceStatus.OPEN);
+
+    private static final int REVENUE_WINDOW_MONTHS = 12;
+
     private final PropertyRepository propertyRepository;
     private final LeaseRepository leaseRepository;
     private final MaintenanceRepository maintenanceRepository;
     private final PaymentRepository paymentRepository;
-    private final UnitRepository unitRepository;
 
     @Transactional(readOnly = true)
     public DashboardSummaryResponse getDashboardSummary() {
@@ -48,82 +50,82 @@ public class DashboardSummaryService {
             throw new UnauthorizedException("PM account context required");
         }
 
-        log.info("Fetching dashboard summary for PM account: {}", pmAccountId);
+        long totalProperties = propertyRepository.countByPmAccountId(pmAccountId);
+        long activeLeases = leaseRepository
+                .countByPmAccountIdAndIsActiveTrueAndStatus(pmAccountId, LeaseStatus.ACTIVE);
+        long openMaintenance = maintenanceRepository
+                .countByPmAccountIdAndStatusIn(pmAccountId, OPEN_MAINTENANCE_STATUSES);
 
-        // 1. Total Properties
-        List<Property> properties = propertyRepository.findByPmAccountId(pmAccountId, Pageable.unpaged()).getContent();
-        long totalProperties = properties.size();
+        YearMonth currentMonth = YearMonth.now();
+        YearMonth windowStart = currentMonth.minusMonths(REVENUE_WINDOW_MONTHS - 1);
+        LocalDateTime from = windowStart.atDay(1).atStartOfDay();
 
-        // 2. Active Leases
-        List<Lease> leases = leaseRepository.findByPmAccountId(pmAccountId, Pageable.unpaged()).getContent();
-        long activeLeases = leases.stream()
-                .filter(l -> Boolean.TRUE.equals(l.getIsActive()) && l.getStatus() == LeaseStatus.ACTIVE)
-                .count();
+        List<Object[]> paymentRows = paymentRepository.findPaymentsSince(
+                pmAccountId, REVENUE_STATUSES, from);
 
-        // 3. Open Maintenance Requests
-        long openMaintenance = maintenanceRepository.findByPmAccountId(pmAccountId, Pageable.unpaged()).getContent().stream()
-                .filter(m -> m.getStatus() == MaintenanceStatus.SUBMITTED 
-                          || m.getStatus() == MaintenanceStatus.IN_PROGRESS 
-                          || m.getStatus() == MaintenanceStatus.OPEN)
-                .count();
+        BigDecimal[] monthly = new BigDecimal[REVENUE_WINDOW_MONTHS];
+        for (int i = 0; i < REVENUE_WINDOW_MONTHS; i++) monthly[i] = BigDecimal.ZERO;
 
-        // 4. Monthly Revenue (Current Month & Past 12 Months)
-        LocalDateTime now = LocalDateTime.now();
-        YearMonth currentYearMonth = YearMonth.from(now);
-        LocalDateTime startOfCurrentMonth = currentYearMonth.atDay(1).atStartOfDay();
+        LocalDateTime startOfCurrentMonth = currentMonth.atDay(1).atStartOfDay();
+        BigDecimal currentMonthRevenue = BigDecimal.ZERO;
 
-        List<Payment> pmPayments = paymentRepository.findByPmAccountIdOrderByTransactionDateDesc(pmAccountId, Pageable.unpaged()).getContent();
+        // Month index: year * 12 + month, both 0-based-agnostic (relative
+        // differences are all that matter, so offset by 1 is fine).
+        long currentIdx = (long) currentMonth.getYear() * 12 + currentMonth.getMonthValue();
 
-        BigDecimal monthlyRevenue = pmPayments.stream()
-                .filter(p -> p.getStatus() == PaymentStatus.COMPLETED || p.getStatus() == PaymentStatus.RECONCILED || p.getStatus() == PaymentStatus.PAID)
-                .filter(p -> p.getTransactionDate() != null && !p.getTransactionDate().isBefore(startOfCurrentMonth))
-                .map(Payment::getAmount)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        for (Object[] row : paymentRows) {
+            LocalDateTime ts = (LocalDateTime) row[0];
+            BigDecimal amount = (BigDecimal) row[1];
+            if (ts == null || amount == null) continue;
 
-        // Revenue array for past 12 months (oldest to current)
-        List<BigDecimal> revenueByMonth = new ArrayList<>(12);
-        for (int i = 11; i >= 0; i--) {
-            YearMonth targetMonth = currentYearMonth.minusMonths(i);
-            LocalDateTime monthStart = targetMonth.atDay(1).atStartOfDay();
-            LocalDateTime monthEnd = targetMonth.atEndOfMonth().atTime(23, 59, 59);
+            YearMonth ym = YearMonth.from(ts);
+            long ymIdx = (long) ym.getYear() * 12 + ym.getMonthValue();
+            long monthsAgo = currentIdx - ymIdx;
 
-            BigDecimal monthTotal = pmPayments.stream()
-                    .filter(p -> p.getStatus() == PaymentStatus.COMPLETED || p.getStatus() == PaymentStatus.RECONCILED || p.getStatus() == PaymentStatus.PAID)
-                    .filter(p -> p.getTransactionDate() != null 
-                              && !p.getTransactionDate().isBefore(monthStart) 
-                              && !p.getTransactionDate().isAfter(monthEnd))
-                    .map(Payment::getAmount)
-                    .filter(Objects::nonNull)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            if (monthsAgo >= 0 && monthsAgo < REVENUE_WINDOW_MONTHS) {
+                int slot = REVENUE_WINDOW_MONTHS - 1 - (int) monthsAgo;
+                monthly[slot] = monthly[slot].add(amount);
+            }
 
-            revenueByMonth.add(monthTotal);
+            if (!ts.isBefore(startOfCurrentMonth)) {
+                currentMonthRevenue = currentMonthRevenue.add(amount);
+            }
         }
 
-        // 5. Occupancy By Property
-        List<PropertyOccupancyDto> occupancyByProperty = new ArrayList<>();
-        for (Property property : properties) {
-            List<Unit> units = unitRepository.findByPropertyId(property.getId(), Pageable.unpaged()).getContent();
-            long totalUnits = property.getTotalUnits() != null ? property.getTotalUnits() : units.size();
-            long occupiedUnits = units.stream()
-                    .filter(u -> u.getStatus() == UnitStatus.OCCUPIED || u.getStatus() == UnitStatus.RENTED || Boolean.FALSE.equals(u.getIsAvailable()))
-                    .count();
-
-            occupancyByProperty.add(PropertyOccupancyDto.builder()
-                    .propertyId(property.getId())
-                    .name(property.getName())
-                    .occupiedUnits(occupiedUnits)
-                    .totalUnits(totalUnits)
+        List<Object[]> occRows = propertyRepository.findOccupancyByProperty(pmAccountId);
+        List<PropertyOccupancyDto> occupancy = new ArrayList<>(occRows.size());
+        for (Object[] row : occRows) {
+            UUID propertyId = (UUID) row[0];
+            String name = (String) row[1];
+            long occupied = toLong(row[2]);
+            long total = toLong(row[3]);
+            occupancy.add(PropertyOccupancyDto.builder()
+                    .propertyId(propertyId)
+                    .name(name)
+                    .occupiedUnits(occupied)
+                    .totalUnits(total)
                     .build());
         }
+
+        log.info("Dashboard summary for PM {}: props={}, activeLeases={}, openMaint={}, monthRev={}",
+                pmAccountId, totalProperties, activeLeases, openMaintenance, currentMonthRevenue);
+
+        List<BigDecimal> revenueByMonth = new ArrayList<>(REVENUE_WINDOW_MONTHS);
+        for (BigDecimal m : monthly) revenueByMonth.add(m);
 
         return DashboardSummaryResponse.builder()
                 .totalProperties(totalProperties)
                 .activeLeases(activeLeases)
                 .openMaintenance(openMaintenance)
-                .monthlyRevenue(monthlyRevenue)
+                .monthlyRevenue(currentMonthRevenue)
                 .revenueByMonth(revenueByMonth)
-                .occupancyByProperty(occupancyByProperty)
+                .occupancyByProperty(occupancy)
                 .build();
+    }
+
+    private static long toLong(Object o) {
+        if (o == null) return 0L;
+        if (o instanceof Number n) return n.longValue();
+        return 0L;
     }
 }

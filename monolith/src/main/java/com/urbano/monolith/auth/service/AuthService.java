@@ -8,11 +8,9 @@ import com.urbano.common.exception.ResourceNotFoundException;
 import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.monolith.auth.dto.AuthRequest;
 import com.urbano.monolith.auth.dto.AuthResponse;
-import com.urbano.monolith.auth.dto.ForgotPasswordRequest;
 import com.urbano.monolith.auth.dto.RefreshTokenRequest;
 import com.urbano.monolith.auth.dto.RefreshTokenResponse;
 import com.urbano.monolith.auth.dto.RegisterRequest;
-import com.urbano.monolith.auth.dto.ResetPasswordRequest;
 import com.urbano.monolith.auth.dto.TenantActivateCodeRequest;
 import com.urbano.monolith.auth.dto.TenantRegistrationRequest;
 import com.urbano.monolith.auth.dto.TenantRegistrationResponse;
@@ -45,7 +43,7 @@ public class AuthService {
     private final TokenBlacklistService tokenBlacklistService;
     private final OtpService otpService;
     private final InviteTokenService inviteTokenService;
-    private final FirebaseTokenService firebaseTokenService;   // NEW (Commit 4)
+    private final FirebaseTokenService firebaseTokenService;
 
     // ============================================================
     // REGISTER (PM_ADMIN)
@@ -90,7 +88,7 @@ public class AuthService {
 
         String token = jwtService.generateToken(user);
         String refreshToken = jwtService.generateRefreshToken(user);
-        String firebaseCustomToken = mintFirebaseTokenQuietly(user);   // NEW (Commit 4)
+        String firebaseCustomToken = mintFirebaseTokenQuietly(user);
 
         return AuthResponse.builder()
                 .accessToken(token)
@@ -102,7 +100,7 @@ public class AuthService {
                 .role(user.getRole().name())
                 .pmAccountId(user.getPmAccountId())
                 .tenantId(null)
-                .firebaseCustomToken(firebaseCustomToken)              // NEW (Commit 4)
+                .firebaseCustomToken(firebaseCustomToken)
                 .tokenType("Bearer")
                 .expiresIn(900)
                 .build();
@@ -126,7 +124,7 @@ public class AuthService {
 
         String token = jwtService.generateToken(user);
         String refreshToken = jwtService.generateRefreshToken(user);
-        String firebaseCustomToken = mintFirebaseTokenQuietly(user);   // NEW (Commit 4)
+        String firebaseCustomToken = mintFirebaseTokenQuietly(user);
 
         return AuthResponse.builder()
                 .accessToken(token)
@@ -138,7 +136,7 @@ public class AuthService {
                 .role(user.getRole().name())
                 .pmAccountId(user.getPmAccountId())
                 .tenantId(resolveTenantId(user.getId()))
-                .firebaseCustomToken(firebaseCustomToken)              // NEW (Commit 4)
+                .firebaseCustomToken(firebaseCustomToken)
                 .tokenType("Bearer")
                 .expiresIn(900)
                 .build();
@@ -185,7 +183,7 @@ public class AuthService {
     }
 
     // ============================================================
-    // TENANT REGISTRATION (self-signup, no tenants row yet)
+    // TENANT REGISTRATION (self-signup)
     // ============================================================
     @Transactional
     public TenantRegistrationResponse registerTenant(TenantRegistrationRequest request) {
@@ -217,7 +215,7 @@ public class AuthService {
     }
 
     // ============================================================
-    // COMMIT 6b: TENANT ACTIVATION (real implementation)
+    // TENANT ACTIVATION
     // ============================================================
     @Transactional
     public AuthResponse activateTenant(TenantActivateCodeRequest request) {
@@ -265,7 +263,7 @@ public class AuthService {
 
         String access = jwtService.generateToken(user);
         String refresh = jwtService.generateRefreshToken(user);
-        String firebaseCustomToken = mintFirebaseTokenQuietly(user);   // NEW (Commit 4)
+        String firebaseCustomToken = mintFirebaseTokenQuietly(user);
 
         return AuthResponse.builder()
                 .accessToken(access)
@@ -277,7 +275,7 @@ public class AuthService {
                 .role(user.getRole().name())
                 .pmAccountId(user.getPmAccountId())
                 .tenantId(tenant.getId())
-                .firebaseCustomToken(firebaseCustomToken)              // NEW (Commit 4)
+                .firebaseCustomToken(firebaseCustomToken)
                 .tokenType("Bearer")
                 .expiresIn(900)
                 .build();
@@ -298,15 +296,80 @@ public class AuthService {
     // ============================================================
     // PASSWORD RESET
     // ============================================================
+
+    /**
+     * Reset password by identifier (email or phone).
+     * Enumeration-safe: unknown identifiers throw the same error as a wrong OTP.
+     * Used by POST /api/auth/password/reset.
+     */
+    @Transactional
+    public void resetPasswordByIdentifier(String identifier, String code, String newPassword) {
+        User user = userRepository.findByEmail(identifier)
+                .orElseGet(() -> userRepository.findByPhone(identifier)
+                        .orElseThrow(() -> new UnauthorizedException("Invalid or expired reset code")));
+
+        boolean verified = otpService.verifyResetOtp(user.getId().toString(), code);
+        if (!verified) {
+            throw new UnauthorizedException("Invalid or expired reset code");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+
+        tokenBlacklistService.invalidateAllForUser(user.getId());
+        log.info("Password reset completed for user: {}", user.getEmail());
+    }
+
+    /**
+     * Legacy: reset by userId. Kept for internal use.
+     */
+    @Deprecated
     @Transactional
     public void resetPassword(UUID userId, String newPassword) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         userRepository.save(user);
-
         tokenBlacklistService.invalidateAllForUser(userId);
         log.info("Password reset and all sessions invalidated for user: {}", user.getEmail());
+    }
+
+    // ============================================================
+    // PROFILE
+    // ============================================================
+    @Transactional
+    public UserProfileResponse updateProfile(UUID userId, String firstName, String lastName, String phone) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        if (phone != null && !phone.equals(user.getPhone()) && userRepository.existsByPhone(phone)) {
+            throw new ConflictException("Phone number already in use");
+        }
+
+        user.setFirstName(firstName);
+        user.setLastName(lastName);
+        if (phone != null) user.setPhone(phone);
+        userRepository.save(user);
+
+        return getUserProfile(userId);
+    }
+
+    @Transactional
+    public void changePassword(UUID userId, String currentPassword, String newPassword) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+            throw new UnauthorizedException("Current password is incorrect");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+
+        // Invalidate all existing tokens for this user (forces re-login).
+        tokenBlacklistService.invalidateAllForUser(userId);
+
+        log.info("Password changed for user {}", user.getEmail());
     }
 
     // ============================================================
@@ -330,7 +393,6 @@ public class AuthService {
                 .map(User::getPhone)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
     }
-
 
     private String mintFirebaseTokenQuietly(User user) {
         try {

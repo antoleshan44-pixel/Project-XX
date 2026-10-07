@@ -2,7 +2,9 @@ package com.urbano.monolith.auth;
 
 import com.urbano.monolith.BaseIntegrationTest;
 import com.urbano.monolith.auth.dto.AuthRequest;
+import com.urbano.monolith.auth.dto.ChangePasswordRequest;
 import com.urbano.monolith.auth.dto.RegisterRequest;
+import com.urbano.monolith.auth.dto.UpdateProfileRequest;
 import com.urbano.monolith.auth.entity.User;
 import com.urbano.monolith.auth.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,8 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 public class AuthControllerIntegrationTest extends BaseIntegrationTest {
@@ -131,5 +132,73 @@ public class AuthControllerIntegrationTest extends BaseIntegrationTest {
         mockMvc.perform(post("/api/auth/firebase-token")
                         .header("Authorization", token))
                 .andExpect(status().isServiceUnavailable());
+    }
+
+    // ============================================================
+    // NEW: profile update + change password
+    // ============================================================
+
+    @Test
+    void testUpdateProfile() throws Exception {
+        User user = createTestPmUser("profile@urbano.com", UUID.randomUUID());
+        user.setPasswordHash(passwordEncoder.encode("Password123!"));
+        User saved = userRepository.save(user);
+
+        String token = createBearerToken(saved);
+
+        UpdateProfileRequest req = UpdateProfileRequest.builder()
+                .firstName("NewFirst")
+                .lastName("NewLast")
+                .phone("+254799000111")
+                .build();
+
+        mockMvc.perform(put("/api/auth/me")
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.firstName", is("NewFirst")))
+                .andExpect(jsonPath("$.lastName", is("NewLast")))
+                .andExpect(jsonPath("$.phone", is("+254799000111")));
+    }
+
+    @Test
+    void testChangePassword() throws Exception {
+        User user = createTestPmUser("changepw@urbano.com", UUID.randomUUID());
+        user.setPasswordHash(passwordEncoder.encode("OldPass123!"));
+        User saved = userRepository.save(user);
+
+        String token = createBearerToken(saved);
+
+        ChangePasswordRequest req = ChangePasswordRequest.builder()
+                .currentPassword("OldPass123!")
+                .newPassword("NewPass456!")
+                .build();
+
+        mockMvc.perform(post("/api/auth/change-password")
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void testChangePasswordRejectsWrongCurrent() throws Exception {
+        User user = createTestPmUser("badpw@urbano.com", UUID.randomUUID());
+        user.setPasswordHash(passwordEncoder.encode("OldPass123!"));
+        User saved = userRepository.save(user);
+
+        String token = createBearerToken(saved);
+
+        ChangePasswordRequest req = ChangePasswordRequest.builder()
+                .currentPassword("WrongPass!")
+                .newPassword("NewPass456!")
+                .build();
+
+        mockMvc.perform(post("/api/auth/change-password")
+                        .header("Authorization", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isUnauthorized());
     }
 }

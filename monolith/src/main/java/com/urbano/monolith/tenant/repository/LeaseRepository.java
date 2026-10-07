@@ -61,6 +61,11 @@ public interface LeaseRepository extends JpaRepository<Lease, UUID> {
     Optional<Lease> findFirstByTenantIdAndStatus(UUID tenantId, LeaseStatus status);
 
     // ============================================================
+    // DASHBOARD — single-query active-lease count
+    // ============================================================
+    long countByPmAccountIdAndIsActiveTrueAndStatus(UUID pmAccountId, LeaseStatus status);
+
+    // ============================================================
     // OVERRIDE findById to eagerly fetch tenant
     // ============================================================
     @Override

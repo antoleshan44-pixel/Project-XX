@@ -1,21 +1,18 @@
 {
 	"info": {
 		"_postman_id": "b1a2c3d4-e5f6-7890-1234-56789abcdef0",
-		"name": "Urbano Homes API v1.0.0",
-		"description": "Complete Postman API Collection for Urbano Homes PropTech Monolith Platform. Includes pre-configured Bearer token headers and sample JSON payloads.",
+		"name": "Urbano Homes API v1.1.0",
+		"description": "Complete Postman API Collection for Urbano Homes PropTech Monolith Platform.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"variable": [
-		{
-			"key": "baseUrl",
-			"value": "http://localhost:9090",
-			"type": "string"
-		},
-		{
-			"key": "authToken",
-			"value": "",
-			"type": "string"
-		}
+		{ "key": "baseUrl", "value": "http://localhost:9090", "type": "string" },
+		{ "key": "authToken", "value": "", "type": "string" },
+		{ "key": "superAdminToken", "value": "", "type": "string" },
+		{ "key": "propertyId", "value": "", "type": "string" },
+		{ "key": "unitId", "value": "", "type": "string" },
+		{ "key": "listingId", "value": "", "type": "string" },
+		{ "key": "ticketId", "value": "", "type": "string" }
 	],
 	"item": [
 		{
@@ -25,153 +22,255 @@
 					"name": "Register Property Manager",
 					"request": {
 						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"fullName\": \"Jane Doe\",\n  \"email\": \"pm@urbano.com\",\n  \"password\": \"Password123!\",\n  \"phone\": \"+254711223344\",\n  \"companyName\": \"Urbano Properties Ltd\"\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/auth/register",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "auth", "register"]
-						}
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": { "mode": "raw", "raw": "{\n  \"fullName\": \"Jane Doe\",\n  \"email\": \"pm@urbano.com\",\n  \"password\": \"Password123!\",\n  \"phone\": \"+254711223344\",\n  \"companyName\": \"Urbano Properties Ltd\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api","auth","register"] }
 					}
 				},
 				{
 					"name": "Login",
 					"request": {
 						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"email\": \"pm@urbano.com\",\n  \"password\": \"Password123!\"\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/auth/login",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "auth", "login"]
-						}
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": { "mode": "raw", "raw": "{\n  \"email\": \"pm@urbano.com\",\n  \"password\": \"Password123!\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api","auth","login"] }
 					}
 				},
 				{
 					"name": "Activate Tenant Account",
 					"request": {
 						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"phone\": \"+254700000000\",\n  \"code\": \"123456\",\n  \"newPassword\": \"TenantPass123!\"\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/auth/tenant/activate",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "auth", "tenant", "activate"]
-						}
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": { "mode": "raw", "raw": "{\n  \"phone\": \"+254700000000\",\n  \"code\": \"123456\",\n  \"newPassword\": \"TenantPass123!\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/auth/tenant/activate", "host": ["{{baseUrl}}"], "path": ["api","auth","tenant","activate"] }
 					}
 				},
 				{
 					"name": "Get Current User Profile",
 					"request": {
 						"method": "GET",
+						"header": [ { "key": "Authorization", "value": "Bearer {{authToken}}" } ],
+						"url": { "raw": "{{baseUrl}}/api/auth/me", "host": ["{{baseUrl}}"], "path": ["api","auth","me"] }
+					}
+				},
+				{
+					"name": "Update My Profile",
+					"request": {
+						"method": "PUT",
 						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{authToken}}"
-							}
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{authToken}}" }
 						],
+						"body": { "mode": "raw", "raw": "{\n  \"firstName\": \"Jane\",\n  \"lastName\": \"Doe\",\n  \"phone\": \"+254799000111\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/auth/me", "host": ["{{baseUrl}}"], "path": ["api","auth","me"] }
+					}
+				},
+				{
+					"name": "Change Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{authToken}}" }
+						],
+						"body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"OldPass123!\",\n  \"newPassword\": \"NewPass456!\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/auth/change-password", "host": ["{{baseUrl}}"], "path": ["api","auth","change-password"] }
+					}
+				},
+				{
+					"name": "Forgot Password (identifier only)",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": { "mode": "raw", "raw": "{\n  \"identifier\": \"pm@urbano.com\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/auth/password/forgot", "host": ["{{baseUrl}}"], "path": ["api","auth","password","forgot"] }
+					}
+				},
+				{
+					"name": "Reset Password (identifier + code + newPassword)",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": { "mode": "raw", "raw": "{\n  \"identifier\": \"pm@urbano.com\",\n  \"code\": \"123456\",\n  \"newPassword\": \"ResetPass123!\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/auth/password/reset", "host": ["{{baseUrl}}"], "path": ["api","auth","password","reset"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "2. Dashboard",
+			"item": [
+				{
+					"name": "Get Dashboard Summary",
+					"request": {
+						"method": "GET",
+						"header": [ { "key": "Authorization", "value": "Bearer {{authToken}}" } ],
+						"url": { "raw": "{{baseUrl}}/api/dashboard/summary", "host": ["{{baseUrl}}"], "path": ["api","dashboard","summary"] }
+					}
+				},
+				{
+					"name": "Get Recent Activity",
+					"request": {
+						"method": "GET",
+						"header": [ { "key": "Authorization", "value": "Bearer {{authToken}}" } ],
 						"url": {
-							"raw": "{{baseUrl}}/api/auth/me",
+							"raw": "{{baseUrl}}/api/dashboard/activity?limit=25",
 							"host": ["{{baseUrl}}"],
-							"path": ["api", "auth", "me"]
+							"path": ["api","dashboard","activity"],
+							"query": [ { "key": "limit", "value": "25" } ]
 						}
 					}
 				}
 			]
 		},
 		{
-			"name": "2. Public Portal",
+			"name": "3. Users (Staff)",
+			"item": [
+				{
+					"name": "List Staff",
+					"request": {
+						"method": "GET",
+						"header": [ { "key": "Authorization", "value": "Bearer {{authToken}}" } ],
+						"url": { "raw": "{{baseUrl}}/api/users?page=0&size=20", "host": ["{{baseUrl}}"], "path": ["api","users"] }
+					}
+				},
+				{
+					"name": "Invite Staff",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{authToken}}" }
+						],
+						"body": { "mode": "raw", "raw": "{\n  \"email\": \"staff@urbano.com\",\n  \"firstName\": \"Jane\",\n  \"lastName\": \"Staff\",\n  \"phone\": \"+254711000000\",\n  \"role\": \"PM_STAFF\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/users", "host": ["{{baseUrl}}"], "path": ["api","users"] }
+					}
+				},
+				{
+					"name": "Deactivate User",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{authToken}}" }
+						],
+						"body": { "mode": "raw", "raw": "{\n  \"status\": \"INACTIVE\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/users/{{userId}}/status", "host": ["{{baseUrl}}"], "path": ["api","users","{{userId}}","status"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "4. Public Portal",
 			"item": [
 				{
 					"name": "Get Public Listings",
 					"request": {
 						"method": "GET",
 						"header": [],
-						"url": {
-							"raw": "{{baseUrl}}/api/public/listings?location=Nairobi&bedrooms=2&transactionType=FOR_RENT",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "public", "listings"],
-							"query": [
-								{ "key": "location", "value": "Nairobi" },
-								{ "key": "bedrooms", "value": "2" },
-								{ "key": "transactionType", "value": "FOR_RENT" }
-							]
-						}
+						"url": { "raw": "{{baseUrl}}/api/public/listings?location=Nairobi&bedrooms=2&transactionType=FOR_RENT", "host": ["{{baseUrl}}"], "path": ["api","public","listings"] }
 					}
 				},
 				{
 					"name": "Inquire About Listing",
 					"request": {
 						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"name\": \"John Buyer\",\n  \"email\": \"john@gmail.com\",\n  \"phone\": \"+254722000000\",\n  \"message\": \"Is this unit available for viewing this Saturday?\"\n}"
-						},
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": { "mode": "raw", "raw": "{\n  \"name\": \"John Buyer\",\n  \"email\": \"john@gmail.com\",\n  \"phone\": \"+254722000000\",\n  \"message\": \"Is this unit available for viewing this Saturday?\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/public/listings/{{listingId}}/inquire", "host": ["{{baseUrl}}"], "path": ["api","public","listings","{{listingId}}","inquire"] }
+					}
+				},
+				{
+					"name": "Submit Contact Form",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": { "mode": "raw", "raw": "{\n  \"fullName\": \"Alice Buyer\",\n  \"email\": \"alice@gmail.com\",\n  \"phone\": \"+254733000111\",\n  \"subject\": \"Question about your service\",\n  \"message\": \"Hello, I would like to know more about your property management services.\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/public/contact", "host": ["{{baseUrl}}"], "path": ["api","public","contact"] }
+					}
+				},
+				{
+					"name": "Newsletter Subscribe",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Content-Type", "value": "application/json" } ],
+						"body": { "mode": "raw", "raw": "{\n  \"email\": \"subscriber@example.com\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/public/newsletter/subscribe", "host": ["{{baseUrl}}"], "path": ["api","public","newsletter","subscribe"] }
+					}
+				},
+				{
+					"name": "Blog Posts",
+					"request": {
+						"method": "GET",
+						"header": [],
 						"url": {
-							"raw": "{{baseUrl}}/api/public/listings/{{listingId}}/inquire",
+							"raw": "{{baseUrl}}/api/public/blog/posts?page=0&size=20",
 							"host": ["{{baseUrl}}"],
-							"path": ["api", "public", "listings", "{{listingId}}", "inquire"]
+							"path": ["api","public","blog","posts"],
+							"query": [ { "key": "page", "value": "0" }, { "key": "size", "value": "20" } ]
 						}
+					}
+				},
+				{
+					"name": "Blog Categories",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/public/blog/categories", "host": ["{{baseUrl}}"], "path": ["api","public","blog","categories"] }
 					}
 				}
 			]
 		},
 		{
-			"name": "3. Properties & Units",
+			"name": "5. Support Tickets",
+			"item": [
+				{
+					"name": "Create Ticket",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{authToken}}" }
+						],
+						"body": { "mode": "raw", "raw": "{\n  \"subject\": \"Cannot upload property photos\",\n  \"description\": \"The upload button returns 500 when I select a JPG over 5MB.\",\n  \"priority\": \"HIGH\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/support/tickets", "host": ["{{baseUrl}}"], "path": ["api","support","tickets"] }
+					}
+				},
+				{
+					"name": "List My Tickets",
+					"request": {
+						"method": "GET",
+						"header": [ { "key": "Authorization", "value": "Bearer {{authToken}}" } ],
+						"url": { "raw": "{{baseUrl}}/api/support/tickets?page=0&size=20", "host": ["{{baseUrl}}"], "path": ["api","support","tickets"] }
+					}
+				},
+				{
+					"name": "Reply To Ticket",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{authToken}}" }
+						],
+						"body": { "mode": "raw", "raw": "{\n  \"message\": \"Thanks for the report. I can reproduce it. Fix in progress.\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/support/tickets/{{ticketId}}/reply", "host": ["{{baseUrl}}"], "path": ["api","support","tickets","{{ticketId}}","reply"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "6. Properties & Units",
 			"item": [
 				{
 					"name": "Create Property",
 					"request": {
 						"method": "POST",
 						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							},
-							{
-								"key": "Authorization",
-								"value": "Bearer {{authToken}}"
-							}
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{authToken}}" }
 						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"name\": \"Kilimani Heights\",\n  \"address\": \"Ring Road Kilimani\",\n  \"city\": \"Nairobi\",\n  \"type\": \"RESIDENTIAL\",\n  \"totalUnits\": 20,\n  \"ownerId\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\"\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/properties",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "properties"]
-						}
+						"body": { "mode": "raw", "raw": "{\n  \"name\": \"Kilimani Heights\",\n  \"address\": \"Ring Road Kilimani\",\n  \"city\": \"Nairobi\",\n  \"type\": \"RESIDENTIAL\",\n  \"totalUnits\": 20,\n  \"ownerId\": \"3fa85f64-5717-4562-b3fc-2c963f66afa6\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/properties", "host": ["{{baseUrl}}"], "path": ["api","properties"] }
 					}
 				},
 				{
@@ -179,84 +278,45 @@
 					"request": {
 						"method": "POST",
 						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							},
-							{
-								"key": "Authorization",
-								"value": "Bearer {{authToken}}"
-							}
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{authToken}}" }
 						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"propertyId\": \"{{propertyId}}\",\n  \"unitNumber\": \"B204\",\n  \"floor\": 2,\n  \"bedrooms\": 2,\n  \"bathrooms\": 2,\n  \"rentAmount\": 50000.00,\n  \"currency\": \"KES\",\n  \"propertyType\": \"APARTMENT\",\n  \"transactionType\": \"FOR_RENT\"\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/units",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "units"]
-						}
+						"body": { "mode": "raw", "raw": "{\n  \"propertyId\": \"{{propertyId}}\",\n  \"unitNumber\": \"B204\",\n  \"floor\": 2,\n  \"bedrooms\": 2,\n  \"bathrooms\": 2,\n  \"rentAmount\": 50000.00,\n  \"currency\": \"KES\",\n  \"propertyType\": \"APARTMENT\",\n  \"transactionType\": \"FOR_RENT\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/units", "host": ["{{baseUrl}}"], "path": ["api","units"] }
 					}
 				}
 			]
 		},
 		{
-			"name": "4. Payments & M-Pesa",
+			"name": "7. Payments & M-Pesa",
 			"item": [
 				{
 					"name": "Initiate M-Pesa STK Push",
 					"request": {
 						"method": "POST",
 						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							},
-							{
-								"key": "Authorization",
-								"value": "Bearer {{authToken}}"
-							}
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{authToken}}" }
 						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"phoneNumber\": \"254712345678\",\n  \"amount\": 45000.00,\n  \"unitId\": \"{{unitId}}\",\n  \"accountReference\": \"Rent-A101\"\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/payments/stk-push",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "payments", "stk-push"]
-						}
+						"body": { "mode": "raw", "raw": "{\n  \"phoneNumber\": \"254712345678\",\n  \"amount\": 45000.00,\n  \"unitId\": \"{{unitId}}\",\n  \"accountReference\": \"Rent-A101\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/payments/stk-push", "host": ["{{baseUrl}}"], "path": ["api","payments","stk-push"] }
 					}
 				}
 			]
 		},
 		{
-			"name": "5. Super Admin Moderation",
+			"name": "8. Super Admin Moderation",
 			"item": [
 				{
 					"name": "Approve Property",
 					"request": {
 						"method": "POST",
 						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							},
-							{
-								"key": "Authorization",
-								"value": "Bearer {{superAdminToken}}"
-							}
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{superAdminToken}}" }
 						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"reason\": \"Property documents verified and compliant.\"\n}"
-						},
-						"url": {
-							"raw": "{{baseUrl}}/api/admin/properties/{{propertyId}}/approve",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "admin", "properties", "{{propertyId}}", "approve"]
-						}
+						"body": { "mode": "raw", "raw": "{\n  \"reason\": \"Property documents verified and compliant.\"\n}" },
+						"url": { "raw": "{{baseUrl}}/api/admin/properties/{{propertyId}}/approve", "host": ["{{baseUrl}}"], "path": ["api","admin","properties","{{propertyId}}","approve"] }
 					}
 				}
 			]

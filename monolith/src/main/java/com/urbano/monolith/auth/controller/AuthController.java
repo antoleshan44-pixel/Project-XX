@@ -8,6 +8,7 @@ import com.urbano.monolith.auth.service.FirebaseTokenService;
 import com.urbano.monolith.auth.service.OtpService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -22,7 +24,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final OtpService otpService;
-    private final FirebaseTokenService firebaseTokenService;   // NEW (Commit 4)
+    private final FirebaseTokenService firebaseTokenService;
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
@@ -50,13 +52,7 @@ public class AuthController {
 
     /**
      * Sends a 6-digit OTP to a phone number that already belongs to a
-     * registered user.
-     *
-     * <p><strong>Post-registration only.</strong> The {@code auth_users} row
-     * must already exist — created either by {@code POST /api/auth/register}
-     * (PM_ADMIN signup) or by {@code POST /api/auth/tenant/register}
-     * (TENANT signup). This endpoint does <em>not</em> create accounts and
-     * does <em>not</em> accept anonymous phone numbers.</p>
+     * registered user. Post-registration only.
      */
     @PostMapping("/register/verify-phone")
     public ResponseEntity<PhoneVerifyResponse> sendPhoneOtp(
@@ -99,70 +95,91 @@ public class AuthController {
         );
     }
 
+    /**
+     * Always returns 200 with an empty body — never reveals whether the
+     * identifier is registered. If it is, an OTP is sent via SMS.
+     *
+     * <p>New contract: caller passes { identifier } (email OR phone).
+     * The OTP is stored under otp:reset:&lt;userId&gt; server-side. The client
+     * never sees or needs the userId.</p>
+     */
     @PostMapping("/password/forgot")
     public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
-        UUID userId = authService.findUserIdByIdentifier(request.getIdentifier());
-        String phone = authService.findPhoneByUserId(userId);
-        otpService.generateAndSendResetOtp(userId.toString(), phone);
+        try {
+            UUID userId = authService.findUserIdByIdentifier(request.getIdentifier());
+            String phone = authService.findPhoneByUserId(userId);
+            otpService.generateAndSendResetOtp(userId.toString(), phone);
+        } catch (Exception e) {
+            // Swallow — never leak account existence to the caller.
+            log.info("Password forgot requested for unknown or unreachable identifier");
+        }
         return ResponseEntity.ok().build();
     }
 
+    /**
+     * New contract: { identifier, code, newPassword }.
+     * No userId ever travels to or from the client.
+     */
     @PostMapping("/password/reset")
     public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
-        boolean verified = otpService.verifyResetOtp(
-                request.getUserId().toString(),
-                request.getCode()
-        );
-        if (!verified) {
-            throw new UnauthorizedException("Invalid or expired reset code");
-        }
-        authService.resetPassword(request.getUserId(), request.getNewPassword());
+        authService.resetPasswordByIdentifier(
+                request.getIdentifier(),
+                request.getCode(),
+                request.getNewPassword());
         return ResponseEntity.ok().build();
     }
 
     @GetMapping("/me")
     public ResponseEntity<UserProfileResponse> getCurrentUser() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()) {
-            return ResponseEntity.status(401).build();
-        }
+        JwtClaims claims = requirePrincipal();
+        return ResponseEntity.ok(authService.getUserProfile(claims.userId()));
+    }
 
-        Object principal = auth.getPrincipal();
-        if (principal instanceof JwtClaims claims) {
-            return ResponseEntity.ok(authService.getUserProfile(claims.userId()));
-        }
+    @PutMapping("/me")
+    public ResponseEntity<UserProfileResponse> updateProfile(
+            @Valid @RequestBody UpdateProfileRequest request) {
+        JwtClaims claims = requirePrincipal();
+        return ResponseEntity.ok(authService.updateProfile(
+                claims.userId(),
+                request.getFirstName(),
+                request.getLastName(),
+                request.getPhone()));
+    }
 
-        return ResponseEntity.status(401).build();
+    @PostMapping("/change-password")
+    public ResponseEntity<Void> changePassword(
+            @Valid @RequestBody ChangePasswordRequest request) {
+        JwtClaims claims = requirePrincipal();
+        authService.changePassword(
+                claims.userId(),
+                request.getCurrentPassword(),
+                request.getNewPassword());
+        return ResponseEntity.ok().build();
     }
 
     /**
-     * Commit 4: mints a Firebase custom token for the authenticated user.
-     *
-     * <p>The client calls {@code signInWithCustomToken(customToken)} to
-     * establish a Firebase Auth session, which then populates
-     * {@code request.auth.uid} in Firestore. Enables real per-user security
-     * rules instead of the test-mode rules that expire 2026-10-17.</p>
-     *
-     * <p>Requires a valid JWT (this endpoint is authenticated via
-     * {@code .anyRequest().authenticated()} in SecurityConfig). Returns
-     * 503 if Firebase is not configured on the server.</p>
+     * Mints a Firebase custom token for the authenticated user.
+     * Returns 503 if Firebase is not configured on the server.
      */
     @PostMapping("/firebase-token")
     public ResponseEntity<FirebaseTokenResponse> getFirebaseToken() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()) {
-            return ResponseEntity.status(401).build();
-        }
-
-        Object principal = auth.getPrincipal();
-        if (!(principal instanceof JwtClaims claims)) {
-            return ResponseEntity.status(401).build();
-        }
-
+        JwtClaims claims = requirePrincipal();
         String customToken = firebaseTokenService.mintCustomToken(claims.userId());
         return ResponseEntity.ok(FirebaseTokenResponse.builder()
                 .customToken(customToken)
                 .expiresIn(firebaseTokenService.getCustomTokenTtlSeconds())
                 .build());
+    }
+
+    // ============================================================
+    // HELPERS
+    // ============================================================
+    private JwtClaims requirePrincipal() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()
+                || !(auth.getPrincipal() instanceof JwtClaims claims)) {
+            throw new UnauthorizedException("Authentication required");
+        }
+        return claims;
     }
 }

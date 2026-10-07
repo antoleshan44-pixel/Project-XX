@@ -2,10 +2,13 @@ package com.urbano.monolith.config;
 
 import com.urbano.monolith.auth.security.JwtAuthenticationFilter;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -19,14 +22,18 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
+@Slf4j
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
 
         private final JwtAuthenticationFilter jwtAuthenticationFilter;
+        private final Environment env;
 
         @Bean
         public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -38,7 +45,7 @@ public class SecurityConfig {
                                 .authenticationEntryPoint(
                                         new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                         .authorizeHttpRequests(auth -> auth
-                                // Root — welcome payload for anyone hitting the base URL
+                                // Root
                                 .requestMatchers("/").permitAll()
 
                                 // Public infrastructure
@@ -59,16 +66,13 @@ public class SecurityConfig {
                                         "/api/auth/tenant/verify/**")
                                 .permitAll()
 
-                                // Public listings
+                                // Public portal (listings, contact, newsletter, blog)
                                 .requestMatchers("/api/public/**").permitAll()
 
-                                // Commit 9: public viewing request — a prospective renter
-                                // browsing listings is not necessarily authenticated.
-                                // Only the POST is public; GET on the same path
-                                // (PM-scoped list) still requires auth via .anyRequest().
+                                // Public viewing request
                                 .requestMatchers(HttpMethod.POST, "/api/units/*/viewings").permitAll()
 
-                                // Payment gateway webhooks (Daraja etc.)
+                                // Payment gateway webhooks
                                 .requestMatchers("/api/callbacks/**").permitAll()
 
                                 // WebSocket handshake
@@ -82,15 +86,14 @@ public class SecurityConfig {
                                         "/v3/api-docs/**")
                                 .permitAll()
 
-                                // ============================================================
-                                // Phase 2: SUPER_ADMIN — platform-wide endpoints
-                                // ============================================================
-                                // Must be declared BEFORE .anyRequest() so the pattern
-                                // matches first. The JwtAuthenticationFilter already
-                                // grants ROLE_SUPER_ADMIN authority from the JWT claim.
+                                // SUPER_ADMIN — platform-wide
                                 .requestMatchers("/api/admin/**").hasRole("SUPER_ADMIN")
 
-                                // Everything else needs a valid JWT
+                                // PM dashboard — @PreAuthorize also enforces role
+                                .requestMatchers("/api/dashboard/**")
+                                .hasAnyRole("PM_ADMIN", "PM_STAFF")
+
+                                // Everything else authenticated
                                 .anyRequest().authenticated())
                         .httpBasic(AbstractHttpConfigurer::disable)
                         .formLogin(AbstractHttpConfigurer::disable)
@@ -108,11 +111,29 @@ public class SecurityConfig {
         public CorsConfigurationSource corsConfigurationSource() {
                 CorsConfiguration cfg = new CorsConfiguration();
                 String allowedOrigins = System.getenv("CORS_ALLOWED_ORIGINS");
+
+                boolean isProd = Arrays.asList(env.getActiveProfiles()).contains("prod")
+                        || "prod".equalsIgnoreCase(System.getenv("SPRING_PROFILES_ACTIVE"));
+
                 if (allowedOrigins != null && !allowedOrigins.trim().isEmpty()) {
-                        cfg.setAllowedOrigins(List.of(allowedOrigins.split(",")));
+                        List<String> origins = Arrays.stream(allowedOrigins.split(","))
+                                .map(String::trim)
+                                .filter(s -> !s.isEmpty())
+                                .toList();
+                        log.info("CORS allowed origins (from env): {}", origins);
+                        cfg.setAllowedOrigins(origins);
+                } else if (isProd) {
+                        throw new IllegalStateException(
+                                "CORS_ALLOWED_ORIGINS must be set when running with the 'prod' profile. " +
+                                        "Refusing to start with wildcard CORS in production.");
                 } else {
-                        cfg.setAllowedOriginPatterns(List.of("*"));
+                        log.warn("CORS_ALLOWED_ORIGINS not set — dev default " +
+                                "(localhost/127.0.0.1) in use. DO NOT run this in production.");
+                        cfg.setAllowedOriginPatterns(List.of(
+                                "http://localhost:*",
+                                "http://127.0.0.1:*"));
                 }
+
                 cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
                 cfg.setAllowedHeaders(List.of("*"));
                 cfg.setExposedHeaders(List.of("Authorization", "X-Correlation-Id"));

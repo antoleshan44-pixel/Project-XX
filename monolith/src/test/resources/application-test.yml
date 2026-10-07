@@ -43,3 +43,15 @@ jwt:
   access-expiry: 3600
   refresh-expiry: 86400
   issuer: urbano-homes-test
+
+# ============================================================
+# Test-only seed credentials.
+# SEED_SUPERADMIN_PASSWORD is required by application.yml
+# (no fallback in prod). Tests supply a dummy value.
+# ============================================================
+seed:
+  superadmin:
+    email: superadmin@urbano.homes
+    password: TestSuperAdminPassword123!
+    first-name: Test
+    last-name: SuperAdmin

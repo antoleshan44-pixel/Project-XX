@@ -52,3 +52,6 @@ test_report.json
 test_debug.log
 __pycache__/
 *.pyc
+
+# --- Maven wrapper (keep offline artifacts out unless intentionally tracked)
+.mvn/wrapper/maven-wrapper.jar

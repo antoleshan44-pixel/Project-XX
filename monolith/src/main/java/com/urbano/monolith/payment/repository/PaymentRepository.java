@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -38,7 +39,8 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     // ============================================================
     Page<Payment> findByTenantIdOrderByCreatedAtDesc(UUID tenantId, Pageable pageable);
 
-    Page<Payment> findByTenantIdAndStatusOrderByCreatedAtDesc(UUID tenantId, PaymentStatus status, Pageable pageable);
+    Page<Payment> findByTenantIdAndStatusOrderByCreatedAtDesc(
+            UUID tenantId, PaymentStatus status, Pageable pageable);
 
     List<Payment> findByTenantIdAndStatus(UUID tenantId, PaymentStatus status);
 
@@ -59,11 +61,12 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     // ============================================================
     Page<Payment> findByPmAccountIdOrderByTransactionDateDesc(UUID pmAccountId, Pageable pageable);
 
-    Page<Payment> findByPmAccountIdAndStatusOrderByTransactionDateDesc(UUID pmAccountId, PaymentStatus status, Pageable pageable);
+    Page<Payment> findByPmAccountIdAndStatusOrderByTransactionDateDesc(
+            UUID pmAccountId, PaymentStatus status, Pageable pageable);
 
-    Page<Payment> findByPmAccountIdAndTenantIdOrderByTransactionDateDesc(UUID pmAccountId, UUID tenantId, Pageable pageable);
+    Page<Payment> findByPmAccountIdAndTenantIdOrderByTransactionDateDesc(
+            UUID pmAccountId, UUID tenantId, Pageable pageable);
 
-    // ✅ Fixed: This method signature matches what AdminPaymentService expects
     @Query("SELECT p FROM Payment p WHERE p.pmAccountId = :pmAccountId " +
             "AND (:status IS NULL OR p.status = :status) " +
             "AND (:startDate IS NULL OR p.transactionDate >= :startDate) " +
@@ -79,10 +82,14 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     // STATUS QUERIES
     // ============================================================
     @Query("SELECT COUNT(p) FROM Payment p WHERE p.pmAccountId = :pmAccountId AND p.status = :status")
-    long countByPmAccountIdAndStatus(@Param("pmAccountId") UUID pmAccountId, @Param("status") PaymentStatus status);
+    long countByPmAccountIdAndStatus(
+            @Param("pmAccountId") UUID pmAccountId,
+            @Param("status") PaymentStatus status);
 
     @Query("SELECT SUM(p.amount) FROM Payment p WHERE p.pmAccountId = :pmAccountId AND p.status = :status")
-    BigDecimal sumAmountByPmAccountIdAndStatus(@Param("pmAccountId") UUID pmAccountId, @Param("status") PaymentStatus status);
+    BigDecimal sumAmountByPmAccountIdAndStatus(
+            @Param("pmAccountId") UUID pmAccountId,
+            @Param("status") PaymentStatus status);
 
     // ============================================================
     // DATE RANGE QUERIES
@@ -90,6 +97,21 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     List<Payment> findByTransactionDateBetween(LocalDateTime startDate, LocalDateTime endDate);
 
     List<Payment> findByStatusIn(List<PaymentStatus> statuses);
+
+    // ============================================================
+    // DASHBOARD — projected revenue rows since a cutoff date
+    // ============================================================
+    @Query("""
+        SELECT p.transactionDate, p.amount
+        FROM Payment p
+        WHERE p.pmAccountId = :pmAccountId
+          AND p.status IN :statuses
+          AND p.transactionDate >= :from
+    """)
+    List<Object[]> findPaymentsSince(
+            @Param("pmAccountId") UUID pmAccountId,
+            @Param("statuses") Collection<PaymentStatus> statuses,
+            @Param("from") LocalDateTime from);
 
     // ============================================================
     // ADMIN QUERIES (unscoped)

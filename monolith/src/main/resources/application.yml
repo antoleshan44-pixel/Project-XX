@@ -5,9 +5,9 @@ spring:
   application:
     name: urbano-monolith
   datasource:
-    url: jdbc:postgresql://${DB_HOST:urbano-postgres-happy-stays1.e.aivencloud.com}:${DB_PORT:15692}/${DB_NAME:defaultdb}?sslmode=${DB_SSLMODE:require}
-    username: ${DB_USER:avnadmin}
-    password: ${DB_PASSWORD:}
+    url: jdbc:postgresql://${DB_HOST}:${DB_PORT:15692}/${DB_NAME:defaultdb}?sslmode=${DB_SSLMODE:require}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 5
@@ -25,9 +25,9 @@ spring:
     table: flyway_schema_history
   data:
     redis:
-      host: ${REDIS_HOST:urbano-valkey-happy-stays1.h.aivencloud.com}
+      host: ${REDIS_HOST}
       port: ${REDIS_PORT:15693}
-      password: ${REDIS_PASSWORD:}
+      password: ${REDIS_PASSWORD}
       ssl:
         enabled: ${REDIS_SSL:true}
       timeout: 5000ms
@@ -65,19 +65,18 @@ jwt:
   issuer: urbano-homes
 
 # ============================================================
-# Phase 2: Super-admin bootstrap
+# Super-admin bootstrap
 # ------------------------------------------------------------
-# Consumed by SuperAdminBootstrap on startup. Creates the initial
-# SUPER_ADMIN if none exists in auth_users. Idempotent — safe to
-# leave in place forever.
+# SEED_SUPERADMIN_PASSWORD is REQUIRED — there is no fallback.
+# If it is missing, the app fails to start. This is intentional:
+# a default password in a public repo is a critical CVE.
 #
-# SECURITY: after first login, change the password immediately via
-# /api/admin/me/password (Phase 2D), or by rotating the env var
-# SEED_SUPERADMIN_PASSWORD and deleting the row.
+# After first login, change the password via the admin API, or
+# rotate the env var and delete the row.
 # ============================================================
 seed:
   superadmin:
     email: ${SEED_SUPERADMIN_EMAIL:superadmin@urbano.homes}
-    password: ${SEED_SUPERADMIN_PASSWORD:Billion$2030}
+    password: ${SEED_SUPERADMIN_PASSWORD}
     first-name: ${SEED_SUPERADMIN_FIRST_NAME:Urbano}
     last-name: ${SEED_SUPERADMIN_LAST_NAME:Admin}

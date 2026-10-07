@@ -29,6 +29,11 @@ public class AuditLog {
     @Column(name = "user_id")
     private String userId;
 
+    // Tenant scope for the dashboard activity feed. Nullable: system-level
+    // rows and pre-V9 rows have no PM account.
+    @Column(name = "pm_account_id")
+    private String pmAccountId;
+
     @Column(name = "username")
     private String username;
 
@@ -87,5 +92,10 @@ public class AuditLog {
     // Helper method to set resourceId from UUID
     public void setResourceId(UUID resourceId) {
         this.resourceId = resourceId != null ? resourceId.toString() : null;
+    }
+
+    // Helper method to set pmAccountId from UUID
+    public void setPmAccountId(UUID pmAccountId) {
+        this.pmAccountId = pmAccountId != null ? pmAccountId.toString() : null;
     }
 }
