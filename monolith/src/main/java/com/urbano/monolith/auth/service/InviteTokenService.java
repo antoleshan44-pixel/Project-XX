@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Short-lived 6-digit codes for tenant invites.
@@ -54,6 +55,32 @@ public class InviteTokenService {
 
     public Duration getCodeTtl() {
         return INVITE_CODE_TTL;
+    }
+
+    // ============================================================
+    // Phase 3 (admin): read-only inspection for SUPER_ADMIN support tooling
+    // ============================================================
+
+    /**
+     * Returns the current invite code for the tenant WITHOUT consuming it.
+     * Returns null if no code exists (never generated, already consumed, or
+     * expired).
+     */
+    public String peek(String tenantId) {
+        return redisTemplate.opsForValue().get(INVITE_CODE_PREFIX + tenantId);
+    }
+
+    /**
+     * Remaining TTL of the invite code in seconds.
+     * Redis semantics: -2 = key does not exist, -1 = key exists with no expiry.
+     * Both map to null here so callers can treat "no live code" as one case.
+     */
+    public Long ttlSeconds(String tenantId) {
+        Long ttl = redisTemplate.getExpire(INVITE_CODE_PREFIX + tenantId, TimeUnit.SECONDS);
+        if (ttl == null || ttl < 0) {
+            return null;
+        }
+        return ttl;
     }
 
     private String generateOtp() {

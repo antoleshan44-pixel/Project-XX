@@ -1,5 +1,6 @@
 package com.urbano.monolith.tenant.repository;
 
+import com.urbano.common.enums.InviteStatus;
 import com.urbano.monolith.tenant.entity.Tenant;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -37,6 +38,12 @@ public interface TenantRepository extends JpaRepository<Tenant, UUID> {
     boolean existsByPhone(String phone);
 
     boolean existsByUserId(UUID userId);
+
+    // ============================================================
+    // SUPER_ADMIN queries (platform-wide — no PM scoping)
+    // ============================================================
+
+    Page<Tenant> findByInviteStatus(InviteStatus status, Pageable pageable);
 
     // ============================================================
     // LEGACY QUERIES (deprecated)
