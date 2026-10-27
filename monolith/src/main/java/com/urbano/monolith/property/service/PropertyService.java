@@ -7,6 +7,8 @@ import com.urbano.common.enums.PropertyStatus;
 import com.urbano.common.exception.ResourceNotFoundException;
 import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.common.exception.ValidationException;
+import com.urbano.monolith.audit.dto.AuditLogRequest;
+import com.urbano.monolith.audit.service.AuditService;
 import com.urbano.monolith.property.dto.PropertyDto;
 import com.urbano.monolith.property.dto.PropertyRequest;
 import com.urbano.monolith.property.entity.Property;
@@ -20,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -29,14 +32,12 @@ import java.util.stream.Collectors;
 public class PropertyService {
 
     private final PropertyRepository propertyRepository;
+    private final AuditService auditService;
 
     @Transactional
     public PropertyDto createProperty(PropertyRequest request) {
         UUID pmAccountId = requireTenant();
 
-        // Owner defaults to the creating user (a PM_ADMIN) if the client did not
-        // supply one. The `properties.owner_id` column is NOT NULL, so we must
-        // always have a value here.
         UUID ownerId = request.getOwnerId() != null
                 ? request.getOwnerId()
                 : TenantContext.getUserId();
@@ -57,8 +58,6 @@ public class PropertyService {
                 .type(request.getType())
                 .totalUnits(request.getTotalUnits())
                 .status(PropertyStatus.AVAILABLE)
-                // Model B — every new property starts PENDING_APPROVAL and is
-                // hidden from tenant-facing listings until a SUPER_ADMIN approves it.
                 .approvalStatus(PropertyApprovalStatus.PENDING_APPROVAL)
                 .ownerId(ownerId)
                 .ownerName(request.getOwnerName())
@@ -85,6 +84,10 @@ public class PropertyService {
     }
 
     public PagedResponse<PropertyDto> getProperties(Pageable pageable) {
+        if (TenantContext.isAdminBypass()) {
+            Page<Property> propertyPage = propertyRepository.findAll(pageable);
+            return toPagedResponse(propertyPage, pageable);
+        }
         UUID pmAccountId = requireTenant();
         Page<Property> propertyPage = propertyRepository.findByPmAccountId(pmAccountId, pageable);
         return toPagedResponse(propertyPage, pageable);
@@ -116,9 +119,6 @@ public class PropertyService {
         property.setLongitude(request.getLongitude());
         property.setLocation(request.getAddress() + ", " + request.getCity());
 
-        // Model B — an edit to a REJECTED property moves it back to PENDING_APPROVAL.
-        // An edit to an APPROVED property keeps it APPROVED (super-admin must
-        // explicitly suspend if they want to hide it again).
         if (property.getApprovalStatus() == PropertyApprovalStatus.REJECTED) {
             property.setApprovalStatus(PropertyApprovalStatus.PENDING_APPROVAL);
             property.setRejectionReason(null);
@@ -138,6 +138,16 @@ public class PropertyService {
         property.setDeletedAt(LocalDateTime.now());
         propertyRepository.save(property);
         log.info("Property deleted: {}", id);
+
+        auditService.logAction(AuditLogRequest.builder()
+                .eventType("PROPERTY")
+                .action("PROPERTY_DELETED")
+                .resourceType("PROPERTY")
+                .resourceId(id)
+                .pmAccountId(property.getPmAccountId())
+                .metadata(Map.of("name", property.getName() != null ? property.getName() : ""))
+                .success(true)
+                .build());
     }
 
     @Transactional
@@ -152,10 +162,6 @@ public class PropertyService {
 
     // -----------------------------------------------------------------
     // Tenant guards
-    //
-    // Phase 2: SUPER_ADMIN is exempt from these guards. The JWT filter
-    // sets TenantContext.isAdminBypass() = true for SUPER_ADMIN, so both
-    // requireTenant() and assertTenantOwns() are no-ops for them.
     // -----------------------------------------------------------------
 
     private UUID requireTenant() {
@@ -212,19 +218,17 @@ public class PropertyService {
                 .type(property.getType())
                 .totalUnits(property.getTotalUnits())
                 .status(property.getStatus())
+                .approvalStatus(property.getApprovalStatus())
+                .rejectionReason(property.getRejectionReason())
                 .ownerId(property.getOwnerId())
                 .ownerName(property.getOwnerName())
                 .ownerEmail(property.getOwnerEmail())
                 .amenities(property.getAmenities())
                 .latitude(property.getLatitude())
                 .longitude(property.getLongitude())
+                .location(property.getLocation())
+                .pmAccountId(property.getPmAccountId())
                 .createdAt(property.getCreatedAt())
-                .updatedAt(property.getUpdatedAt())
-                // Phase 2 — approval fields
-                .approvalStatus(property.getApprovalStatus())
-                .approvedAt(property.getApprovedAt())
-                .approvedBy(property.getApprovedBy())
-                .rejectionReason(property.getRejectionReason())
                 .build();
     }
 }

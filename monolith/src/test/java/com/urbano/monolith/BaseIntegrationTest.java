@@ -21,7 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 public abstract class BaseIntegrationTest {

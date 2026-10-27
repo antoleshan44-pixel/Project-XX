@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -17,6 +18,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/audit")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
 public class AuditController {
 
     private final AuditService auditService;
@@ -72,7 +74,7 @@ public class AuditController {
     }
 
     /**
-     * Get recent audit logs (last 24 hours)
+     * Get recent audit logs (last 24 hours) - scoped to PM account for PM_ADMIN / PM_STAFF
      */
     @GetMapping("/logs/recent")
     public ResponseEntity<PagedResponse<AuditLogDto>> getRecentAuditLogs(

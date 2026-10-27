@@ -10,6 +10,8 @@ import com.urbano.common.exception.ResourceNotFoundException;
 import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.common.exception.ValidationException;
 import com.urbano.common.storage.PhotoStorageService;
+import com.urbano.monolith.audit.dto.AuditLogRequest;
+import com.urbano.monolith.audit.service.AuditService;
 import com.urbano.monolith.auth.entity.User;
 import com.urbano.monolith.auth.repository.UserRepository;
 import com.urbano.monolith.property.dto.UnitDto;
@@ -46,11 +48,15 @@ public class UnitService {
     private final PropertyRepository propertyRepository;
     private final UserRepository userRepository;
     private final PhotoStorageService photoStorageService;
+    private final AuditService auditService;
 
     // ============================================================
     // Tenant helpers
     // ============================================================
     private UUID requireTenant() {
+        if (TenantContext.isAdminBypass()) {
+            return null;
+        }
         UUID pmAccountId = TenantContext.getPmAccountId();
         if (pmAccountId == null) {
             throw new UnauthorizedException("No tenant context — authentication required");
@@ -59,6 +65,10 @@ public class UnitService {
     }
 
     private Unit requireOwnedUnit(UUID id) {
+        if (TenantContext.isAdminBypass()) {
+            return unitRepository.findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
+        }
         UUID pmAccountId = requireTenant();
         return unitRepository.findByIdAndTenant(id, pmAccountId)
                 .orElseThrow(() -> new ResourceNotFoundException("Unit not found"));
@@ -75,12 +85,11 @@ public class UnitService {
         Property property = propertyRepository.findById(request.getPropertyId())
                 .orElseThrow(() -> new ResourceNotFoundException("Property not found"));
 
-        if (property.getPmAccountId() == null
-                || !pmAccountId.equals(property.getPmAccountId())) {
+        if (!TenantContext.isAdminBypass() && (property.getPmAccountId() == null
+                || !pmAccountId.equals(property.getPmAccountId()))) {
             throw new UnauthorizedException("Access denied to this property");
         }
 
-        // Commit 7: defaults for the two new fields if caller omitted them
         PropertyType propertyType = request.getPropertyType() != null
                 ? request.getPropertyType() : PropertyType.APARTMENT;
         TransactionType transactionType = request.getTransactionType() != null
@@ -103,8 +112,8 @@ public class UnitService {
                 .published(true)
                 .label("Unit " + request.getUnitNumber())
                 .photoUrls(new ArrayList<>())
-                .propertyType(propertyType)              // Commit 7
-                .transactionType(transactionType)        // Commit 7
+                .propertyType(propertyType)
+                .transactionType(transactionType)
                 .createdAt(LocalDateTime.now())
                 .build();
 
@@ -124,16 +133,20 @@ public class UnitService {
 
     @Transactional(readOnly = true)
     public PagedResponse<UnitDto> getUnits(UUID propertyId, Pageable pageable) {
-        UUID pmAccountId = requireTenant();
-
         Property property = propertyRepository.findById(propertyId)
                 .orElseThrow(() -> new ResourceNotFoundException("Property not found"));
-        if (property.getPmAccountId() == null
-                || !pmAccountId.equals(property.getPmAccountId())) {
-            throw new UnauthorizedException("Access denied to this property");
+
+        if (!TenantContext.isAdminBypass()) {
+            UUID pmAccountId = requireTenant();
+            if (property.getPmAccountId() == null
+                    || !pmAccountId.equals(property.getPmAccountId())) {
+                throw new UnauthorizedException("Access denied to this property");
+            }
+            Page<Unit> unitPage = unitRepository.findByPropertyIdAndTenant(propertyId, pmAccountId, pageable);
+            return toPagedResponse(unitPage, pageable);
         }
 
-        Page<Unit> unitPage = unitRepository.findByPropertyIdAndTenant(propertyId, pmAccountId, pageable);
+        Page<Unit> unitPage = unitRepository.findByPropertyId(propertyId, pageable);
         return toPagedResponse(unitPage, pageable);
     }
 
@@ -172,7 +185,6 @@ public class UnitService {
         unit.setDescription(request.getDescription());
         unit.setFeatures(request.getFeatures());
 
-        // Commit 7: PATCH semantics — only overwrite if caller provided
         if (request.getPropertyType() != null) {
             unit.setPropertyType(request.getPropertyType());
         }
@@ -192,13 +204,18 @@ public class UnitService {
         unit.setDeletedAt(LocalDateTime.now());
         unitRepository.save(unit);
         log.info("Unit deleted: {}", id);
+
+        auditService.logAction(AuditLogRequest.builder()
+                .eventType("UNIT")
+                .action("UNIT_DELETED")
+                .resourceType("UNIT")
+                .resourceId(id)
+                .pmAccountId(unit.getProperty() != null ? unit.getProperty().getPmAccountId() : null)
+                .metadata(Map.of("unitNumber", unit.getUnitNumber() != null ? unit.getUnitNumber() : ""))
+                .success(true)
+                .build());
     }
 
-    /**
-     * Commit 7: publish guard.
-     * A unit cannot go live without a transactionType — the mobile UX review
-     * flagged that a listing without one has an ambiguous price.
-     */
     @Transactional
     @CacheEvict(value = {"publicListingsV5", "listingDetailsV4"}, allEntries = true)
     public UnitDto publishUnit(UUID id) {
@@ -246,7 +263,6 @@ public class UnitService {
             unit.setIsAvailable(newStatus == UnitStatus.AVAILABLE);
             unit = unitRepository.save(unit);
         } catch (IllegalArgumentException e) {
-            // Commit 7 hygiene: typed exception instead of RuntimeException
             throw new ValidationException("Invalid status: " + status);
         }
         return mapToDto(unit);
@@ -348,8 +364,8 @@ public class UnitService {
                 .description(unit.getDescription())
                 .features(unit.getFeatures())
                 .photoUrls(unit.getPhotoUrls() != null ? new ArrayList<>(unit.getPhotoUrls()) : new ArrayList<>())
-                .propertyType(unit.getPropertyType())           // Commit 7
-                .transactionType(unit.getTransactionType())     // Commit 7
+                .propertyType(unit.getPropertyType())
+                .transactionType(unit.getTransactionType())
                 .createdAt(unit.getCreatedAt())
                 .updatedAt(unit.getUpdatedAt())
                 .build();
@@ -365,7 +381,6 @@ public class UnitService {
                 : null;
 
         return VacantUnitDto.builder()
-                // unit-level
                 .id(unit.getId())
                 .propertyId(unit.getPropertyId())
                 .unitNumber(unit.getUnitNumber())
@@ -384,10 +399,8 @@ public class UnitService {
                 .thumbnailUrl(thumbnail)
                 .status(unit.getStatus() != null ? unit.getStatus().name() : null)
                 .published(unit.isPublished())
-                // Commit 7 — unit-level filter fields
                 .unitPropertyType(unit.getPropertyType())
                 .transactionType(unit.getTransactionType())
-                // property-level
                 .propertyName(property != null ? property.getName() : null)
                 .propertyType(property != null ? property.getType() : null)
                 .address(property != null ? property.getAddress() : null)
@@ -395,9 +408,7 @@ public class UnitService {
                 .state(property != null ? property.getState() : null)
                 .country(property != null ? property.getCountry() : null)
                 .location(property != null ? property.getLocation() : null)
-                // Phase 2 (Model B) — platform-approval gate (null-safe)
                 .propertyApprovalStatus(property != null ? property.getApprovalStatus() : null)
-                // PM
                 .pmAccountId(pmAccountId)
                 .pmName(pmName)
                 .build();

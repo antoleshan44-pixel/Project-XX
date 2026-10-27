@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -16,6 +17,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/properties")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
 public class PropertyController {
 
     private final PropertyService propertyService;
@@ -48,6 +50,7 @@ public class PropertyController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<Void> deleteProperty(@PathVariable("id") UUID id) {
         propertyService.deleteProperty(id);
         return ResponseEntity.noContent().build();

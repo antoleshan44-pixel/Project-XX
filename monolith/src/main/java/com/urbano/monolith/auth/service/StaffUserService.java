@@ -7,6 +7,8 @@ import com.urbano.common.exception.ConflictException;
 import com.urbano.common.exception.ResourceNotFoundException;
 import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.common.exception.ValidationException;
+import com.urbano.monolith.audit.dto.AuditLogRequest;
+import com.urbano.monolith.audit.service.AuditService;
 import com.urbano.monolith.auth.dto.StaffInviteRequest;
 import com.urbano.monolith.auth.dto.StaffUserResponse;
 import com.urbano.monolith.auth.dto.UpdateUserStatusRequest;
@@ -23,7 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.EnumSet;
-import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -36,6 +38,7 @@ public class StaffUserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AuditService auditService;
 
     @Transactional(readOnly = true)
     public Page<StaffUserResponse> listStaff(int page, int size) {
@@ -63,8 +66,7 @@ public class StaffUserService {
         }
 
         // Generate a random temporary password. Staff logs in and can change it
-        // via /api/auth/change-password. Send invite link via SMS/email in a
-        // follow-up (out of scope for this commit).
+        // via /api/auth/change-password.
         String tempPassword = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
 
         User user = User.builder()
@@ -84,6 +86,18 @@ public class StaffUserService {
 
         log.info("Staff user invited: {} role={} for PM {}",
                 user.getEmail(), user.getRole(), pmAccountId);
+
+        auditService.logAction(AuditLogRequest.builder()
+                .eventType("USER_MANAGEMENT")
+                .action("STAFF_INVITED")
+                .userId(user.getId())
+                .pmAccountId(pmAccountId)
+                .username(user.getEmail())
+                .resourceType("USER")
+                .resourceId(user.getId())
+                .metadata(Map.of("role", user.getRole().name()))
+                .success(true)
+                .build());
 
         return toDto(user);
     }
@@ -116,6 +130,19 @@ public class StaffUserService {
         user = userRepository.save(user);
 
         log.info("Staff user {} status -> {}", user.getEmail(), user.getStatus());
+
+        auditService.logAction(AuditLogRequest.builder()
+                .eventType("USER_MANAGEMENT")
+                .action("USER_STATUS_UPDATED")
+                .userId(user.getId())
+                .pmAccountId(pmAccountId)
+                .username(user.getEmail())
+                .resourceType("USER")
+                .resourceId(user.getId())
+                .metadata(Map.of("newStatus", user.getStatus().name()))
+                .success(true)
+                .build());
+
         return toDto(user);
     }
 

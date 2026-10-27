@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -24,6 +25,9 @@ public class ViewingController {
     private final ViewingService viewingService;
 
     private UUID requireTenant() {
+        if (TenantContext.isAdminBypass()) {
+            return null;
+        }
         UUID pmAccountId = TenantContext.getPmAccountId();
         if (pmAccountId == null) {
             throw new UnauthorizedException("No tenant context — authentication required");
@@ -53,6 +57,7 @@ public class ViewingController {
     // PM-scoped
     // ============================================================
     @GetMapping("/api/viewings")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<PagedResponse<ViewingDto>> getViewings(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -60,11 +65,13 @@ public class ViewingController {
     }
 
     @GetMapping("/api/viewings/{id}")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<ViewingDto> getViewing(@PathVariable("id") UUID id) {
         return ResponseEntity.ok(viewingService.getViewing(id, requireTenant()));
     }
 
     @GetMapping("/api/viewings/status/{status}")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<PagedResponse<ViewingDto>> getViewingsByStatus(
             @PathVariable("status") ViewingStatus status,
             @RequestParam(defaultValue = "0") int page,
@@ -73,6 +80,7 @@ public class ViewingController {
     }
 
     @GetMapping("/api/units/{unitId}/viewings")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<PagedResponse<ViewingDto>> getViewingsByUnit(
             @PathVariable("unitId") UUID unitId,
             @RequestParam(defaultValue = "0") int page,
@@ -81,6 +89,7 @@ public class ViewingController {
     }
 
     @PutMapping("/api/viewings/{id}/status")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<ViewingDto> updateStatus(
             @PathVariable("id") UUID id,
             @Valid @RequestBody ViewingStatusUpdateRequest request) {
@@ -88,13 +97,20 @@ public class ViewingController {
     }
 
     // ============================================================
-    // User-scoped — for future My Bookings (mobile on Firestore today)
+    // User-scoped — for My Bookings
     // ============================================================
     @GetMapping("/api/users/{userId}/viewings")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<PagedResponse<ViewingDto>> getViewingsForUser(
             @PathVariable("userId") UUID userId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
+        if (!TenantContext.isAdminBypass()) {
+            UUID currentUserId = TenantContext.getUserId();
+            if (currentUserId == null || !currentUserId.equals(userId)) {
+                throw new UnauthorizedException("Access denied to user viewings");
+            }
+        }
         return ResponseEntity.ok(viewingService.getViewingsForUser(userId, page, size));
     }
 }

@@ -67,6 +67,10 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     Page<Payment> findByPmAccountIdAndTenantIdOrderByTransactionDateDesc(
             UUID pmAccountId, UUID tenantId, Pageable pageable);
 
+    List<Payment> findByPmAccountIdAndIsReconciledFalseOrderByCreatedAtDesc(UUID pmAccountId);
+
+    List<Payment> findByPmAccountIdAndReconciledAtBetween(UUID pmAccountId, LocalDateTime startDate, LocalDateTime endDate);
+
     @Query("SELECT p FROM Payment p WHERE p.pmAccountId = :pmAccountId " +
             "AND (:status IS NULL OR p.status = :status) " +
             "AND (:startDate IS NULL OR p.transactionDate >= :startDate) " +

@@ -6,6 +6,7 @@ import com.urbano.monolith.payment.service.ReconciliationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -15,6 +16,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/reconciliation")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('PM_ADMIN', 'SUPER_ADMIN')")
 public class ReconciliationController {
 
     private final ReconciliationService reconciliationService;

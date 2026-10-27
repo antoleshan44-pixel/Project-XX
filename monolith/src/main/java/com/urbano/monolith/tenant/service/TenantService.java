@@ -1,9 +1,14 @@
 package com.urbano.monolith.tenant.service;
 
+import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
 import com.urbano.common.enums.InviteStatus;
+import com.urbano.common.enums.UserRole;
 import com.urbano.common.exception.ConflictException;
 import com.urbano.common.exception.ResourceNotFoundException;
+import com.urbano.common.exception.UnauthorizedException;
+import com.urbano.monolith.audit.dto.AuditLogRequest;
+import com.urbano.monolith.audit.service.AuditService;
 import com.urbano.monolith.auth.service.InviteTokenService;
 import com.urbano.monolith.notification.service.SmsService;
 import com.urbano.monolith.tenant.dto.TenantDto;
@@ -23,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -34,6 +40,7 @@ public class TenantService {
     private final TenantRepository tenantRepository;
     private final InviteTokenService inviteTokenService;
     private final SmsService smsService;
+    private final AuditService auditService;
 
     @Value("${app.mobile.deep-link-prefix:urbanohomes://tenant/activate}")
     private String deepLinkPrefix;
@@ -42,20 +49,12 @@ public class TenantService {
     // COMMIT 6b: INVITE FLOW
     // ============================================================
 
-    /**
-     * Creates a PENDING tenant row and sends an invite SMS with both a deep
-     * link and a 6-digit fallback code.
-     *
-     * <p>Idempotency: if a tenant already exists for this (pmAccountId, phone),
-     * we return 409. Use resend-invite to reuse an existing pending row.</p>
-     */
     @Transactional
     public TenantInviteResponse inviteTenant(TenantInviteRequest request, UUID pmAccountId) {
         if (pmAccountId == null) {
-            throw new com.urbano.common.exception.UnauthorizedException("No tenant context");
+            throw new UnauthorizedException("No tenant context");
         }
 
-        // Duplicate check: any tenant (active, pending, or manual) with this phone in this PM account
         tenantRepository.findByPhone(request.getPhone())
                 .ifPresent(existing -> {
                     if (pmAccountId.equals(existing.getPmAccountId())) {
@@ -80,14 +79,14 @@ public class TenantService {
 
         Tenant tenant = Tenant.builder()
                 .pmAccountId(pmAccountId)
-                .userId(null)                       // set on activate
+                .userId(null)
                 .fullName(request.getFullName())
                 .firstName(firstName)
                 .lastName(lastName)
                 .email(request.getEmail())
                 .phone(request.getPhone())
                 .unitId(request.getUnitId())
-                .isActive(false)                    // activated later
+                .isActive(false)
                 .creditBalance(0.0)
                 .inviteStatus(InviteStatus.PENDING)
                 .invitedAt(LocalDateTime.now())
@@ -114,10 +113,6 @@ public class TenantService {
                 .build();
     }
 
-    /**
-     * Regenerates the 6-digit code and resends the SMS for an existing PENDING tenant.
-     * No-op-safe if the tenant was already activated.
-     */
     @Transactional
     public TenantInviteResponse resendInvite(UUID tenantId, UUID pmAccountId) {
         Tenant tenant = tenantRepository.findByIdAndPmAccountId(tenantId, pmAccountId)
@@ -127,7 +122,6 @@ public class TenantService {
             throw new ConflictException("Tenant has already activated their account");
         }
 
-        // Move to PENDING if it was somehow MANUAL (shouldn't happen, but defensive)
         tenant.setInviteStatus(InviteStatus.PENDING);
         tenant.setInvitedAt(LocalDateTime.now());
         tenant = tenantRepository.save(tenant);
@@ -152,7 +146,7 @@ public class TenantService {
 
     private boolean sendInviteSms(Tenant tenant) {
         String code = inviteTokenService.generateCodeForTenant(tenant.getId().toString());
-        String deepLink = deepLinkPrefix + "?phone=" + tenant.getPhone();  // no code in the link
+        String deepLink = deepLinkPrefix + "?phone=" + tenant.getPhone();
 
         String message = String.format(
                 "You're invited to Urbano Homes. Open the app: %s — or enter code %s. Expires in 10 minutes.",
@@ -162,21 +156,20 @@ public class TenantService {
             smsService.sendSms(tenant.getPhone(), message);
             return true;
         } catch (Exception e) {
-            // Don't roll back the tenant row — the PM can retry via resend-invite.
             log.error("Failed to dispatch invite SMS for tenant {}: {}", tenant.getId(), e.getMessage());
             return false;
         }
     }
 
     // ============================================================
-    // EXISTING METHODS (unchanged behavior + new fields in mapToDto)
+    // EXISTING METHODS
     // ============================================================
 
     @Transactional
     public TenantDto createTenant(TenantRequest request) {
-        UUID pmAccountId = com.urbano.common.context.TenantContext.getPmAccountId();
+        UUID pmAccountId = TenantContext.getPmAccountId();
         if (pmAccountId == null) {
-            throw new com.urbano.common.exception.UnauthorizedException("No tenant context");
+            throw new UnauthorizedException("No tenant context");
         }
 
         if (tenantRepository.existsByEmail(request.getEmail())) {
@@ -206,7 +199,7 @@ public class TenantService {
                 .emergencyPhone(request.getEmergencyPhone())
                 .isActive(true)
                 .creditBalance(0.0)
-                .inviteStatus(InviteStatus.MANUAL)   // PM created directly — no invite
+                .inviteStatus(InviteStatus.MANUAL)
                 .build();
 
         tenant = tenantRepository.save(tenant);
@@ -253,6 +246,22 @@ public class TenantService {
     public TenantDto getTenantByUserId(UUID userId) {
         Tenant tenant = tenantRepository.findByUserId(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tenant not found for user"));
+
+        if (!TenantContext.isAdminBypass()) {
+            UserRole role = TenantContext.getUserRole();
+            if (role == UserRole.TENANT) {
+                if (!userId.equals(TenantContext.getUserId())) {
+                    throw new UnauthorizedException("Access denied to tenant profile");
+                }
+            } else {
+                UUID pmAccountId = TenantContext.getPmAccountId();
+                if (pmAccountId == null || tenant.getPmAccountId() == null
+                        || !pmAccountId.equals(tenant.getPmAccountId())) {
+                    throw new UnauthorizedException("Access denied to tenant profile");
+                }
+            }
+        }
+
         return mapToDto(tenant);
     }
 
@@ -297,6 +306,16 @@ public class TenantService {
         tenant.setDeletedAt(LocalDateTime.now());
         tenantRepository.save(tenant);
         log.info("Tenant deactivated: {}", id);
+
+        auditService.logAction(AuditLogRequest.builder()
+                .eventType("TENANT")
+                .action("TENANT_DELETED")
+                .resourceType("TENANT")
+                .resourceId(id)
+                .pmAccountId(pmAccountId)
+                .metadata(Map.of("name", tenant.getFullName() != null ? tenant.getFullName() : ""))
+                .success(true)
+                .build());
     }
 
     @Transactional

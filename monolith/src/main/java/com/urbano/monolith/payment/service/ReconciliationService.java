@@ -1,7 +1,7 @@
 package com.urbano.monolith.payment.service;
 
-import com.urbano.common.enums.PaymentStatus;
-import com.urbano.common.exception.ResourceNotFoundException;
+import com.urbano.common.context.TenantContext;
+import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.monolith.payment.dto.PaymentDto;
 import com.urbano.monolith.payment.dto.ReconciliationDto;
 import com.urbano.monolith.payment.entity.Payment;
@@ -35,13 +35,31 @@ public class ReconciliationService {
     }
 
     public List<ReconciliationDto> getUnreconciledPayments() {
-        return paymentRepository.findByIsReconciledFalse().stream()
+        if (TenantContext.isAdminBypass()) {
+            return paymentRepository.findByIsReconciledFalse().stream()
+                    .map(this::mapToReconciliationDto)
+                    .collect(Collectors.toList());
+        }
+        UUID pmAccountId = TenantContext.getPmAccountId();
+        if (pmAccountId == null) {
+            throw new UnauthorizedException("No PM account context — authentication required");
+        }
+        return paymentRepository.findByPmAccountIdAndIsReconciledFalseOrderByCreatedAtDesc(pmAccountId).stream()
                 .map(this::mapToReconciliationDto)
                 .collect(Collectors.toList());
     }
 
     public List<ReconciliationDto> getReconciledPayments(LocalDateTime startDate, LocalDateTime endDate) {
-        return paymentRepository.findByReconciledAtBetween(startDate, endDate).stream()
+        if (TenantContext.isAdminBypass()) {
+            return paymentRepository.findByReconciledAtBetween(startDate, endDate).stream()
+                    .map(this::mapToReconciliationDto)
+                    .collect(Collectors.toList());
+        }
+        UUID pmAccountId = TenantContext.getPmAccountId();
+        if (pmAccountId == null) {
+            throw new UnauthorizedException("No PM account context — authentication required");
+        }
+        return paymentRepository.findByPmAccountIdAndReconciledAtBetween(pmAccountId, startDate, endDate).stream()
                 .map(this::mapToReconciliationDto)
                 .collect(Collectors.toList());
     }

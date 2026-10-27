@@ -11,6 +11,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -19,12 +20,16 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/maintenance")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
 public class MaintenanceController {
 
     private final MaintenanceService maintenanceService;
     private final PhotoService photoService;
 
     private UUID requireTenant() {
+        if (TenantContext.isAdminBypass()) {
+            return null;
+        }
         UUID pmAccountId = TenantContext.getPmAccountId();
         if (pmAccountId == null) {
             throw new UnauthorizedException("No tenant context — authentication required");
@@ -147,6 +152,7 @@ public class MaintenanceController {
     // DELETE (Soft Delete)
     // ============================================================
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<Void> deleteRequest(@PathVariable("id") UUID id) {
         maintenanceService.deleteRequest(id, requireTenant());
         return ResponseEntity.noContent().build();

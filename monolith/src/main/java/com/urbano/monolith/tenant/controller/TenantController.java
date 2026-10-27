@@ -12,6 +12,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -20,6 +21,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/tenants")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN', 'TENANT')")
 public class TenantController {
 
     private final TenantService tenantService;
@@ -34,40 +36,36 @@ public class TenantController {
 
     // ---- Commit 6b: invite flow ----
 
-    /**
-     * PM invites a tenant. Creates a PENDING tenant row and sends an SMS with
-     * a deep link and a 6-digit code. Returns 409 if a tenant already exists
-     * for this (pmAccountId, phone) or if the email is globally taken.
-     */
     @PostMapping("/invite")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<TenantInviteResponse> inviteTenant(
             @Valid @RequestBody TenantInviteRequest request) {
         return ResponseEntity.ok(tenantService.inviteTenant(request, requireTenant()));
     }
 
-    /**
-     * Resends the invite SMS for a PENDING tenant. Regenerates the 6-digit code.
-     * Returns 409 if the tenant has already activated.
-     */
     @PostMapping("/{id}/resend-invite")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<TenantInviteResponse> resendInvite(@PathVariable("id") UUID id) {
         return ResponseEntity.ok(tenantService.resendInvite(id, requireTenant()));
     }
 
-    // ---- Existing endpoints ----
+    // ---- Standard CRUD ----
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<TenantDto> createTenant(@Valid @RequestBody TenantRequest request) {
         request.setPmAccountId(requireTenant());
         return ResponseEntity.ok(tenantService.createTenant(request));
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<TenantDto> getTenant(@PathVariable("id") UUID id) {
         return ResponseEntity.ok(tenantService.getTenant(id, requireTenant()));
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<PagedResponse<TenantDto>> getTenants(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -75,6 +73,7 @@ public class TenantController {
     }
 
     @GetMapping("/active")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<PagedResponse<TenantDto>> getActiveTenants(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -82,6 +81,7 @@ public class TenantController {
     }
 
     @GetMapping("/unit/{unitId}")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<PagedResponse<TenantDto>> getTenantsByUnit(
             @PathVariable("unitId") UUID unitId,
             @RequestParam(defaultValue = "0") int page,
@@ -95,6 +95,7 @@ public class TenantController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<TenantDto> updateTenant(
             @PathVariable("id") UUID id,
             @Valid @RequestBody TenantRequest request) {
@@ -102,19 +103,22 @@ public class TenantController {
     }
 
     @PatchMapping("/{id}")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<TenantDto> patchTenant(
             @PathVariable("id") UUID id,
-            @RequestBody TenantRequest request) {
+            @Valid @RequestBody TenantRequest request) {
         return ResponseEntity.ok(tenantService.updateTenant(id, requireTenant(), request));
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<Void> deleteTenant(@PathVariable("id") UUID id) {
         tenantService.deleteTenant(id, requireTenant());
         return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{id}/status")
+    @PreAuthorize("hasAnyRole('PM_ADMIN', 'PM_STAFF', 'SUPER_ADMIN')")
     public ResponseEntity<TenantDto> updateTenantStatus(
             @PathVariable("id") UUID id,
             @RequestParam("active") boolean active) {

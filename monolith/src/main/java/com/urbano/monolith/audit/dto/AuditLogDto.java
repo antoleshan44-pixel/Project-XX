@@ -17,6 +17,7 @@ public class AuditLogDto {
     private UUID id;
     private String eventType;
     private UUID userId;
+    private UUID pmAccountId;
     private String username;
     private String action;
     private String resourceType;

@@ -6,6 +6,8 @@ import com.urbano.common.enums.UserStatus;
 import com.urbano.common.exception.ConflictException;
 import com.urbano.common.exception.ResourceNotFoundException;
 import com.urbano.common.exception.UnauthorizedException;
+import com.urbano.monolith.audit.dto.AuditLogRequest;
+import com.urbano.monolith.audit.service.AuditService;
 import com.urbano.monolith.auth.dto.AuthRequest;
 import com.urbano.monolith.auth.dto.AuthResponse;
 import com.urbano.monolith.auth.dto.RefreshTokenRequest;
@@ -28,6 +30,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Slf4j
@@ -44,6 +48,7 @@ public class AuthService {
     private final OtpService otpService;
     private final InviteTokenService inviteTokenService;
     private final FirebaseTokenService firebaseTokenService;
+    private final AuditService auditService;
 
     // ============================================================
     // REGISTER (PM_ADMIN)
@@ -86,6 +91,17 @@ public class AuthService {
         user = userRepository.save(user);
         log.info("PM_ADMIN registered: {} with account {}", user.getEmail(), pmAccount.getId());
 
+        auditService.logAction(AuditLogRequest.builder()
+                .eventType("AUTH")
+                .action("REGISTER_SUCCESS")
+                .userId(user.getId())
+                .pmAccountId(pmAccount.getId())
+                .username(user.getEmail())
+                .resourceType("USER")
+                .resourceId(user.getId())
+                .success(true)
+                .build());
+
         String token = jwtService.generateToken(user);
         String refreshToken = jwtService.generateRefreshToken(user);
         String firebaseCustomToken = mintFirebaseTokenQuietly(user);
@@ -107,24 +123,104 @@ public class AuthService {
     }
 
     // ============================================================
-    // LOGIN
+    // LOGIN (Hardened: lockout, enumeration protection, audit logging)
     // ============================================================
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponse login(AuthRequest request) {
-        User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new UnauthorizedException("Invalid credentials"));
+        Optional<User> userOpt = userRepository.findByEmail(request.getEmail());
 
+        if (userOpt.isEmpty()) {
+            auditService.logAction(AuditLogRequest.builder()
+                    .eventType("AUTH")
+                    .action("LOGIN_FAILED")
+                    .username(request.getEmail())
+                    .resourceType("USER")
+                    .metadata(Map.of("reason", "User not found"))
+                    .success(false)
+                    .build());
+            throw new UnauthorizedException("Invalid credentials");
+        }
+
+        User user = userOpt.get();
+
+        // Check if account is temporarily locked
+        if (user.getLockoutUntil() != null && user.getLockoutUntil().isAfter(LocalDateTime.now())) {
+            auditService.logAction(AuditLogRequest.builder()
+                    .eventType("AUTH")
+                    .action("LOGIN_REJECTED_LOCKED")
+                    .userId(user.getId())
+                    .pmAccountId(user.getPmAccountId())
+                    .username(user.getEmail())
+                    .resourceType("USER")
+                    .resourceId(user.getId())
+                    .metadata(Map.of("lockoutUntil", user.getLockoutUntil().toString()))
+                    .success(false)
+                    .build());
+            throw new UnauthorizedException("Account is temporarily locked. Please try again later or reset your password.");
+        }
+
+        // Verify password
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+            int failedAttempts = user.getFailedLoginAttempts() + 1;
+            user.setFailedLoginAttempts(failedAttempts);
+
+            if (failedAttempts >= 5) {
+                user.setLockoutUntil(LocalDateTime.now().plusMinutes(15));
+                log.warn("Account {} locked for 15 minutes due to {} failed login attempts",
+                        user.getEmail(), failedAttempts);
+            }
+            userRepository.save(user);
+
+            auditService.logAction(AuditLogRequest.builder()
+                    .eventType("AUTH")
+                    .action("LOGIN_FAILED")
+                    .userId(user.getId())
+                    .pmAccountId(user.getPmAccountId())
+                    .username(user.getEmail())
+                    .resourceType("USER")
+                    .resourceId(user.getId())
+                    .metadata(Map.of("failedAttempts", failedAttempts))
+                    .success(false)
+                    .build());
+
             throw new UnauthorizedException("Invalid credentials");
         }
 
         if (user.getStatus() == UserStatus.SUSPENDED) {
+            auditService.logAction(AuditLogRequest.builder()
+                    .eventType("AUTH")
+                    .action("LOGIN_REJECTED_SUSPENDED")
+                    .userId(user.getId())
+                    .pmAccountId(user.getPmAccountId())
+                    .username(user.getEmail())
+                    .resourceType("USER")
+                    .resourceId(user.getId())
+                    .success(false)
+                    .build());
             throw new UnauthorizedException("Account is suspended");
+        }
+
+        // Clear lockout and failed counter on successful login
+        if (user.getFailedLoginAttempts() > 0 || user.getLockoutUntil() != null) {
+            user.setFailedLoginAttempts(0);
+            user.setLockoutUntil(null);
+            userRepository.save(user);
         }
 
         String token = jwtService.generateToken(user);
         String refreshToken = jwtService.generateRefreshToken(user);
         String firebaseCustomToken = mintFirebaseTokenQuietly(user);
+
+        auditService.logAction(AuditLogRequest.builder()
+                .eventType("AUTH")
+                .action("LOGIN_SUCCESS")
+                .userId(user.getId())
+                .pmAccountId(user.getPmAccountId())
+                .username(user.getEmail())
+                .resourceType("USER")
+                .resourceId(user.getId())
+                .success(true)
+                .build());
 
         return AuthResponse.builder()
                 .accessToken(token)
@@ -180,6 +276,18 @@ public class AuthService {
     public void logout(String token) {
         tokenBlacklistService.blacklistToken(token);
         log.info("User logged out");
+
+        try {
+            String email = jwtService.extractEmail(token);
+            auditService.logAction(AuditLogRequest.builder()
+                    .eventType("AUTH")
+                    .action("LOGOUT")
+                    .username(email)
+                    .resourceType("USER")
+                    .success(true)
+                    .build());
+        } catch (Exception ignored) {
+        }
     }
 
     // ============================================================
@@ -207,6 +315,16 @@ public class AuthService {
 
         user = userRepository.save(user);
         log.info("Tenant registered: {}", user.getEmail());
+
+        auditService.logAction(AuditLogRequest.builder()
+                .eventType("AUTH")
+                .action("TENANT_REGISTER_SUCCESS")
+                .userId(user.getId())
+                .username(user.getEmail())
+                .resourceType("USER")
+                .resourceId(user.getId())
+                .success(true)
+                .build());
 
         return TenantRegistrationResponse.builder()
                 .tenantId(user.getId().toString())
@@ -261,6 +379,17 @@ public class AuthService {
         tenant.setActivatedAt(LocalDateTime.now());
         tenantRepository.save(tenant);
 
+        auditService.logAction(AuditLogRequest.builder()
+                .eventType("AUTH")
+                .action("TENANT_ACTIVATED")
+                .userId(user.getId())
+                .pmAccountId(tenant.getPmAccountId())
+                .username(user.getEmail())
+                .resourceType("USER")
+                .resourceId(user.getId())
+                .success(true)
+                .build());
+
         String access = jwtService.generateToken(user);
         String refresh = jwtService.generateRefreshToken(user);
         String firebaseCustomToken = mintFirebaseTokenQuietly(user);
@@ -314,10 +443,23 @@ public class AuthService {
         }
 
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.setFailedLoginAttempts(0);
+        user.setLockoutUntil(null);
         userRepository.save(user);
 
         tokenBlacklistService.invalidateAllForUser(user.getId());
         log.info("Password reset completed for user: {}", user.getEmail());
+
+        auditService.logAction(AuditLogRequest.builder()
+                .eventType("AUTH")
+                .action("PASSWORD_RESET_SUCCESS")
+                .userId(user.getId())
+                .pmAccountId(user.getPmAccountId())
+                .username(user.getEmail())
+                .resourceType("USER")
+                .resourceId(user.getId())
+                .success(true)
+                .build());
     }
 
     /**
@@ -329,6 +471,8 @@ public class AuthService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.setFailedLoginAttempts(0);
+        user.setLockoutUntil(null);
         userRepository.save(user);
         tokenBlacklistService.invalidateAllForUser(userId);
         log.info("Password reset and all sessions invalidated for user: {}", user.getEmail());
@@ -364,10 +508,23 @@ public class AuthService {
         }
 
         user.setPasswordHash(passwordEncoder.encode(newPassword));
+        user.setFailedLoginAttempts(0);
+        user.setLockoutUntil(null);
         userRepository.save(user);
 
         // Invalidate all existing tokens for this user (forces re-login).
         tokenBlacklistService.invalidateAllForUser(userId);
+
+        auditService.logAction(AuditLogRequest.builder()
+                .eventType("AUTH")
+                .action("PASSWORD_CHANGED")
+                .userId(user.getId())
+                .pmAccountId(user.getPmAccountId())
+                .username(user.getEmail())
+                .resourceType("USER")
+                .resourceId(user.getId())
+                .success(true)
+                .build());
 
         log.info("Password changed for user {}", user.getEmail());
     }

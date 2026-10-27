@@ -1,7 +1,9 @@
 package com.urbano.monolith.audit.service;
 
+import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
 import com.urbano.common.exception.ResourceNotFoundException;
+import com.urbano.common.exception.UnauthorizedException;
 import com.urbano.monolith.audit.dto.AuditLogDto;
 import com.urbano.monolith.audit.dto.AuditLogRequest;
 import com.urbano.monolith.audit.entity.AuditLog;
@@ -29,15 +31,20 @@ public class AuditService {
     private final AuditLogRepository auditLogRepository;
 
     /**
-     * Asynchronously log an action - non-blocking
+     * Asynchronously log an action - non-blocking.
+     * Automatically extracts userId and pmAccountId from TenantContext if not explicitly provided.
      */
     @Async
     @Transactional
     public void logAction(AuditLogRequest request) {
         try {
+            UUID userId = request.getUserId() != null ? request.getUserId() : TenantContext.getUserId();
+            UUID pmAccountId = request.getPmAccountId() != null ? request.getPmAccountId() : TenantContext.getPmAccountId();
+
             AuditLog auditLog = AuditLog.builder()
                     .eventType(request.getEventType())
-                    .userId(request.getUserId() != null ? request.getUserId().toString() : null)
+                    .userId(userId != null ? userId.toString() : null)
+                    .pmAccountId(pmAccountId != null ? pmAccountId.toString() : null)
                     .username(request.getUsername())
                     .action(request.getAction())
                     .resourceType(request.getResourceType())
@@ -49,12 +56,12 @@ public class AuditService {
                     .isSuccess(request.isSuccess())
                     .executionTime(request.getExecutionTime())
                     .correlationId(request.getCorrelationId())
-                    .serviceName(request.getServiceName())
+                    .serviceName(request.getServiceName() != null ? request.getServiceName() : "monolith")
                     .timestamp(LocalDateTime.now())
                     .build();
 
             auditLogRepository.save(auditLog);
-            log.debug("Audit log saved: {} - {}", request.getEventType(), request.getAction());
+            log.debug("Audit log saved: {} - {} (pmAccountId={})", request.getEventType(), request.getAction(), pmAccountId);
         } catch (Exception e) {
             log.error("Failed to save audit log: {}", e.getMessage(), e);
         }
@@ -67,6 +74,16 @@ public class AuditService {
     public AuditLogDto getAuditLog(UUID id) {
         AuditLog auditLog = auditLogRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Audit log not found with id: " + id));
+
+        // Ownership check: non-superadmin can only view logs belonging to their pmAccountId
+        if (!TenantContext.isAdminBypass()) {
+            UUID pmAccountId = TenantContext.getPmAccountId();
+            if (pmAccountId == null || auditLog.getPmAccountId() == null
+                    || !pmAccountId.toString().equals(auditLog.getPmAccountId())) {
+                throw new UnauthorizedException("Access denied to this audit log");
+            }
+        }
+
         return mapToDto(auditLog);
     }
 
@@ -75,6 +92,9 @@ public class AuditService {
      */
     @Transactional(readOnly = true)
     public PagedResponse<AuditLogDto> getUserAuditLogs(UUID userId, int page, int size) {
+        if (!TenantContext.isAdminBypass() && !userId.equals(TenantContext.getUserId())) {
+            throw new UnauthorizedException("Access denied to audit logs for this user");
+        }
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "timestamp"));
         Page<AuditLog> auditPage = auditLogRepository
                 .findByUserIdOrderByTimestampDesc(userId.toString(), pageable);
@@ -102,13 +122,26 @@ public class AuditService {
     }
 
     /**
-     * Get recent audit logs (last 24 hours)
+     * Get recent audit logs (last 24 hours).
+     * If called by PM_ADMIN or PM_STAFF, strictly scoped to their pmAccountId.
+     * If called by SUPER_ADMIN, shows platform-wide recent logs.
      */
     @Transactional(readOnly = true)
     public PagedResponse<AuditLogDto> getRecentAuditLogs(int page, int size) {
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "timestamp"));
-        LocalDateTime twentyFourHoursAgo = LocalDateTime.now().minusHours(24);
-        Page<AuditLog> auditPage = auditLogRepository.findByTimestampAfter(twentyFourHoursAgo, pageable);
+        Page<AuditLog> auditPage;
+
+        if (TenantContext.isAdminBypass()) {
+            LocalDateTime twentyFourHoursAgo = LocalDateTime.now().minusHours(24);
+            auditPage = auditLogRepository.findByTimestampAfter(twentyFourHoursAgo, pageable);
+        } else {
+            UUID pmAccountId = TenantContext.getPmAccountId();
+            if (pmAccountId == null) {
+                throw new UnauthorizedException("No tenant context — authentication required");
+            }
+            auditPage = auditLogRepository.findByPmAccountIdOrderByTimestampDesc(pmAccountId.toString(), pageable);
+        }
+
         return mapToPagedResponse(auditPage);
     }
 
@@ -140,6 +173,7 @@ public class AuditService {
                 .id(auditLog.getId())
                 .eventType(auditLog.getEventType())
                 .userId(auditLog.getUserId() != null ? UUID.fromString(auditLog.getUserId()) : null)
+                .pmAccountId(auditLog.getPmAccountId() != null ? UUID.fromString(auditLog.getPmAccountId()) : null)
                 .username(auditLog.getUsername())
                 .action(auditLog.getAction())
                 .resourceType(auditLog.getResourceType())

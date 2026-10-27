@@ -78,4 +78,11 @@ public class User {
 
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
+
+    @Column(name = "failed_login_attempts")
+    @Builder.Default
+    private int failedLoginAttempts = 0;
+
+    @Column(name = "lockout_until")
+    private LocalDateTime lockoutUntil;
 }

@@ -1,9 +1,12 @@
 package com.urbano.monolith.maintenance.service;
 
+import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
 import com.urbano.common.enums.MaintenanceStatus;
 import com.urbano.common.exception.ResourceNotFoundException;
 import com.urbano.common.exception.UnauthorizedException;
+import com.urbano.monolith.audit.dto.AuditLogRequest;
+import com.urbano.monolith.audit.service.AuditService;
 import com.urbano.monolith.maintenance.dto.MaintenanceRequestDto;
 import com.urbano.monolith.maintenance.dto.MaintenanceRequestRequest;
 import com.urbano.monolith.maintenance.dto.StatusUpdateRequest;
@@ -11,6 +14,8 @@ import com.urbano.monolith.maintenance.entity.MaintenanceRequest;
 import com.urbano.monolith.maintenance.repository.MaintenanceRepository;
 import com.urbano.monolith.property.service.PropertyService;
 import com.urbano.monolith.property.service.UnitService;
+import com.urbano.monolith.tenant.entity.Tenant;
+import com.urbano.monolith.tenant.repository.TenantRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -33,16 +38,27 @@ public class MaintenanceService {
     private final MaintenanceRepository maintenanceRepository;
     private final UnitService unitService;
     private final PropertyService propertyService;
+    private final TenantRepository tenantRepository;
+    private final AuditService auditService;
 
     @Transactional
     public MaintenanceRequestDto createRequest(MaintenanceRequestRequest request) {
-        UUID pmAccountId = com.urbano.common.context.TenantContext.getPmAccountId();
-        if (pmAccountId == null) {
+        UUID pmAccountId = TenantContext.getPmAccountId();
+        if (pmAccountId == null && request.getPmAccountId() != null) {
+            pmAccountId = request.getPmAccountId();
+        }
+        if (pmAccountId == null && request.getTenantId() != null) {
+            Tenant tenant = tenantRepository.findById(request.getTenantId()).orElse(null);
+            if (tenant != null) {
+                pmAccountId = tenant.getPmAccountId();
+            }
+        }
+        if (pmAccountId == null && !TenantContext.isAdminBypass()) {
             throw new UnauthorizedException("No tenant context");
         }
 
-        // Verify the unit belongs to this tenant
-        if (!unitService.validateUnitPmAccount(request.getUnitId(), pmAccountId)) {
+        // Verify the unit belongs to this PM account if pmAccountId is present
+        if (pmAccountId != null && request.getUnitId() != null && !unitService.validateUnitPmAccount(request.getUnitId(), pmAccountId)) {
             throw new UnauthorizedException("Unit does not belong to this PM account");
         }
 
@@ -65,18 +81,20 @@ public class MaintenanceService {
 
     @Transactional(readOnly = true)
     public MaintenanceRequestDto getRequest(UUID id, UUID pmAccountId) {
-        MaintenanceRequest maintenance = maintenanceRepository.findByIdAndPmAccountId(id, pmAccountId)
-                .orElseThrow(() -> new ResourceNotFoundException("Maintenance request not found"));
+        MaintenanceRequest maintenance = findRequest(id, pmAccountId);
         return mapToDto(maintenance);
     }
 
     @Transactional(readOnly = true)
     public PagedResponse<MaintenanceRequestDto> getAllRequests(UUID pmAccountId, int page, int size) {
-        Page<MaintenanceRequest> pageable = maintenanceRepository.findByPmAccountId(
-                pmAccountId,
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"))
-        );
-        return mapToPagedResponse(pageable);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<MaintenanceRequest> requestPage;
+        if (TenantContext.isAdminBypass() || pmAccountId == null) {
+            requestPage = maintenanceRepository.findAll(pageable);
+        } else {
+            requestPage = maintenanceRepository.findByPmAccountId(pmAccountId, pageable);
+        }
+        return mapToPagedResponse(requestPage);
     }
 
     @Transactional(readOnly = true)
@@ -85,12 +103,14 @@ public class MaintenanceService {
             MaintenanceStatus status,
             int page,
             int size) {
-        Page<MaintenanceRequest> pageable = maintenanceRepository.findByPmAccountIdAndStatus(
-                pmAccountId,
-                status,
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"))
-        );
-        return mapToPagedResponse(pageable);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<MaintenanceRequest> requestPage;
+        if (TenantContext.isAdminBypass() || pmAccountId == null) {
+            requestPage = maintenanceRepository.findByStatus(status, pageable);
+        } else {
+            requestPage = maintenanceRepository.findByPmAccountIdAndStatus(pmAccountId, status, pageable);
+        }
+        return mapToPagedResponse(requestPage);
     }
 
     @Transactional(readOnly = true)
@@ -99,12 +119,14 @@ public class MaintenanceService {
             UUID pmAccountId,
             int page,
             int size) {
-        Page<MaintenanceRequest> pageable = maintenanceRepository.findByUnitIdAndPmAccountId(
-                unitId,
-                pmAccountId,
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"))
-        );
-        return mapToPagedResponse(pageable);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<MaintenanceRequest> requestPage;
+        if (TenantContext.isAdminBypass() || pmAccountId == null) {
+            requestPage = maintenanceRepository.findByUnitId(unitId, pageable);
+        } else {
+            requestPage = maintenanceRepository.findByUnitIdAndPmAccountId(unitId, pmAccountId, pageable);
+        }
+        return mapToPagedResponse(requestPage);
     }
 
     @Transactional(readOnly = true)
@@ -113,18 +135,19 @@ public class MaintenanceService {
             UUID pmAccountId,
             int page,
             int size) {
-        Page<MaintenanceRequest> pageable = maintenanceRepository.findByPropertyIdAndPmAccountId(
-                propertyId,
-                pmAccountId,
-                PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"))
-        );
-        return mapToPagedResponse(pageable);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<MaintenanceRequest> requestPage;
+        if (TenantContext.isAdminBypass() || pmAccountId == null) {
+            requestPage = maintenanceRepository.findByPropertyId(propertyId, pageable);
+        } else {
+            requestPage = maintenanceRepository.findByPropertyIdAndPmAccountId(propertyId, pmAccountId, pageable);
+        }
+        return mapToPagedResponse(requestPage);
     }
 
     @Transactional
     public MaintenanceRequestDto updateRequest(UUID id, UUID pmAccountId, MaintenanceRequestRequest request) {
-        MaintenanceRequest maintenance = maintenanceRepository.findByIdAndPmAccountId(id, pmAccountId)
-                .orElseThrow(() -> new ResourceNotFoundException("Maintenance request not found"));
+        MaintenanceRequest maintenance = findRequest(id, pmAccountId);
 
         maintenance.setTitle(request.getTitle());
         maintenance.setDescription(request.getDescription());
@@ -137,8 +160,7 @@ public class MaintenanceService {
 
     @Transactional
     public MaintenanceRequestDto updateStatus(UUID id, UUID pmAccountId, StatusUpdateRequest request) {
-        MaintenanceRequest maintenance = maintenanceRepository.findByIdAndPmAccountId(id, pmAccountId)
-                .orElseThrow(() -> new ResourceNotFoundException("Maintenance request not found"));
+        MaintenanceRequest maintenance = findRequest(id, pmAccountId);
 
         MaintenanceStatus oldStatus = maintenance.getStatus();
         maintenance.setStatus(request.getStatus());
@@ -166,8 +188,7 @@ public class MaintenanceService {
 
     @Transactional
     public MaintenanceRequestDto assignRequest(UUID id, UUID pmAccountId, UUID assignedTo) {
-        MaintenanceRequest maintenance = maintenanceRepository.findByIdAndPmAccountId(id, pmAccountId)
-                .orElseThrow(() -> new ResourceNotFoundException("Maintenance request not found"));
+        MaintenanceRequest maintenance = findRequest(id, pmAccountId);
 
         maintenance.setAssignedTo(assignedTo);
         if (maintenance.getStatus() == MaintenanceStatus.OPEN) {
@@ -182,8 +203,7 @@ public class MaintenanceService {
 
     @Transactional
     public MaintenanceRequestDto addPhoto(UUID id, UUID pmAccountId, String photoUrl) {
-        MaintenanceRequest maintenance = maintenanceRepository.findByIdAndPmAccountId(id, pmAccountId)
-                .orElseThrow(() -> new ResourceNotFoundException("Maintenance request not found"));
+        MaintenanceRequest maintenance = findRequest(id, pmAccountId);
 
         if (maintenance.getPhotoUrl() == null) {
             maintenance.setPhotoUrl(photoUrl);
@@ -202,13 +222,21 @@ public class MaintenanceService {
 
     @Transactional
     public void deleteRequest(UUID id, UUID pmAccountId) {
-        MaintenanceRequest maintenance = maintenanceRepository.findByIdAndPmAccountId(id, pmAccountId)
-                .orElseThrow(() -> new ResourceNotFoundException("Maintenance request not found"));
+        MaintenanceRequest maintenance = findRequest(id, pmAccountId);
 
         maintenance.setStatus(MaintenanceStatus.CANCELLED);
         maintenance.setDeletedAt(LocalDateTime.now());
         maintenanceRepository.save(maintenance);
         log.info("Maintenance request cancelled: {}", id);
+
+        auditService.logAction(AuditLogRequest.builder()
+                .pmAccountId(maintenance.getPmAccountId())
+                .userId(TenantContext.getUserId())
+                .action("MAINTENANCE_DELETED")
+                .entityType("MAINTENANCE")
+                .entityId(maintenance.getId().toString())
+                .details("Maintenance request deleted/cancelled: " + maintenance.getTitle())
+                .build());
     }
 
     @Transactional(readOnly = true)
@@ -243,6 +271,15 @@ public class MaintenanceService {
         MaintenanceRequest request = maintenanceRepository.findByIdAndTenantId(requestId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Maintenance request not found for tenant: " + tenantId));
         return mapToDto(request);
+    }
+
+    private MaintenanceRequest findRequest(UUID id, UUID pmAccountId) {
+        if (TenantContext.isAdminBypass() || pmAccountId == null) {
+            return maintenanceRepository.findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("Maintenance request not found"));
+        }
+        return maintenanceRepository.findByIdAndPmAccountId(id, pmAccountId)
+                .orElseThrow(() -> new ResourceNotFoundException("Maintenance request not found"));
     }
 
     // ============================================================

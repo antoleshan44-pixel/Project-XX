@@ -3,8 +3,11 @@ package com.urbano.monolith.tenant.service;
 import com.urbano.common.context.TenantContext;
 import com.urbano.common.dto.PagedResponse;
 import com.urbano.common.enums.LeaseStatus;
+import com.urbano.common.enums.UserRole;
 import com.urbano.common.exception.ResourceNotFoundException;
 import com.urbano.common.exception.UnauthorizedException;
+import com.urbano.monolith.audit.dto.AuditLogRequest;
+import com.urbano.monolith.audit.service.AuditService;
 import com.urbano.monolith.property.service.UnitService;
 import com.urbano.monolith.tenant.dto.LeaseDto;
 import com.urbano.monolith.tenant.dto.LeaseRequest;
@@ -24,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -35,13 +39,37 @@ public class LeaseService {
     private final LeaseRepository leaseRepository;
     private final TenantRepository tenantRepository;
     private final UnitService unitService;
+    private final AuditService auditService;
 
     private UUID requireTenant() {
+        if (TenantContext.isAdminBypass()) {
+            return null;
+        }
         UUID pmAccountId = TenantContext.getPmAccountId();
         if (pmAccountId == null) {
             throw new UnauthorizedException("No tenant context — authentication required");
         }
         return pmAccountId;
+    }
+
+    private void assertAccessToLease(Lease lease) {
+        if (TenantContext.isAdminBypass()) {
+            return;
+        }
+        UserRole role = TenantContext.getUserRole();
+        if (role == UserRole.TENANT) {
+            UUID userId = TenantContext.getUserId();
+            if (lease.getTenant() == null || lease.getTenant().getUserId() == null
+                    || !lease.getTenant().getUserId().equals(userId)) {
+                throw new UnauthorizedException("Access denied to this lease");
+            }
+        } else {
+            UUID pmAccountId = TenantContext.getPmAccountId();
+            if (pmAccountId == null || lease.getPmAccountId() == null
+                    || !pmAccountId.equals(lease.getPmAccountId())) {
+                throw new UnauthorizedException("Access denied to this lease");
+            }
+        }
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -99,8 +127,10 @@ public class LeaseService {
         UUID pmAccountId = requireTenant();
         log.info("Terminating lease: {} for tenant {}", id, pmAccountId);
 
-        Lease lease = leaseRepository.findByIdAndPmAccountId(id, pmAccountId)
+        Lease lease = leaseRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Lease not found"));
+
+        assertAccessToLease(lease);
 
         if (!lease.isCurrentlyActive()) {
             throw new RuntimeException("Lease is not active");
@@ -123,13 +153,24 @@ public class LeaseService {
             tenantRepository.save(tenant);
         }
 
+        auditService.logAction(AuditLogRequest.builder()
+                .eventType("LEASE")
+                .action("LEASE_TERMINATED")
+                .resourceType("LEASE")
+                .resourceId(id)
+                .pmAccountId(lease.getPmAccountId())
+                .metadata(Map.of("reason", request.getReason() != null ? request.getReason() : ""))
+                .success(true)
+                .build());
+
         return mapToDto(lease);
     }
 
     @Transactional(readOnly = true)
     public LeaseDto getLease(UUID id, UUID pmAccountId) {
-        Lease lease = leaseRepository.findByIdAndPmAccountId(id, pmAccountId)
+        Lease lease = leaseRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Lease not found"));
+        assertAccessToLease(lease);
         return mapToDto(lease);
     }
 
@@ -153,6 +194,13 @@ public class LeaseService {
 
     @Transactional(readOnly = true)
     public PagedResponse<LeaseDto> getLeasesByTenant(UUID tenantId, UUID pmAccountId, int page, int size) {
+        if (!TenantContext.isAdminBypass() && TenantContext.getUserRole() == UserRole.TENANT) {
+            Tenant tenant = tenantRepository.findById(tenantId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Tenant not found"));
+            if (tenant.getUserId() == null || !tenant.getUserId().equals(TenantContext.getUserId())) {
+                throw new UnauthorizedException("Access denied to tenant leases");
+            }
+        }
         Page<Lease> leasePage = leaseRepository.findByTenantIdAndPmAccountId(
                 tenantId,
                 pmAccountId,
@@ -175,6 +223,7 @@ public class LeaseService {
     public LeaseDto getActiveLeaseByUnit(UUID unitId) {
         Lease lease = leaseRepository.findByUnitIdAndIsActiveTrue(unitId)
                 .orElseThrow(() -> new ResourceNotFoundException("No active lease found for unit: " + unitId));
+        assertAccessToLease(lease);
         return mapToDto(lease);
     }
 
@@ -182,6 +231,7 @@ public class LeaseService {
     public LeaseDto getActiveLeaseByTenant(UUID tenantId) {
         Lease lease = leaseRepository.findByTenantIdAndIsActiveTrue(tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("No active lease found for tenant: " + tenantId));
+        assertAccessToLease(lease);
         return mapToDto(lease);
     }
 
